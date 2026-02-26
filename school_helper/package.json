@@ -1,5 +1,5 @@
 {
   "name": "school-helper",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Telegram bot for testing a 5th-grader in English and Spanish, powered by local LLM"
 }
