@@ -1,0 +1,269 @@
+# Interview Plan for Feature: access-control
+
+interview_metadata:
+  started: "2026-02-26 12:00:00"
+  last_updated: "2026-02-26 12:30:00"
+  status: "in_progress"
+  can_resume: true
+  current_question_num: 12
+  feature_size: "M"
+
+conversation_history:
+  - question_num: 1
+    topic: "first_admin"
+    agent_question: "Как определяется первый админ?"
+    user_answer: "Через .env — ADMIN_ID, несъёмный"
+    summary: "Первый админ из .env, неудаляемый"
+  - question_num: 2
+    topic: "user_problem"
+    agent_question: "Главная причина ограничения?"
+    user_answer: "Приватность — семейный бот"
+    summary: "Приватность, не нагрузка"
+  - question_num: 3
+    topic: "blocked_message"
+    agent_question: "Что видит неразрешённый пользователь?"
+    user_answer: "Короткое сообщение 'Доступ ограничен'"
+    summary: "Короткое сообщение без подробностей"
+  - question_num: 4
+    topic: "testing"
+    agent_question: "Нужны ли автотесты?"
+    user_answer: "Без тестов, ручная проверка"
+    summary: "Без автотестов"
+  - question_num: 5
+    topic: "allow_format"
+    agent_question: "Как добавлять через /allow?"
+    user_answer: "По Telegram ID"
+    summary: "По числовому Telegram ID"
+  - question_num: 6
+    topic: "block_behavior"
+    agent_question: "Что происходит при блокировке во время теста?"
+    user_answer: "Текущий тест можно докончить, новый нельзя"
+    summary: "Докончить текущий тест, потом блок"
+  - question_num: 7
+    topic: "multiple_admins"
+    agent_question: "Может ли админ добавить другого админа?"
+    user_answer: "Да, можно"
+    summary: "Множественные админы через /allow ID admin"
+  - question_num: 8
+    topic: "users_command"
+    agent_question: "Что показывать в /users?"
+    user_answer: "Имя + роль + статус"
+    summary: "Полный список: имя, роль, статус"
+  - question_num: 9
+    topic: "allow_order"
+    agent_question: "Порядок: сначала /allow, потом ребёнок пишет?"
+    user_answer: "Да, сначала /allow"
+    summary: "Сначала admin добавляет ID, потом user пишет /start"
+  - question_num: 10
+    topic: "migration"
+    agent_question: "Миграция 2 существующих пользователей?"
+    user_answer: "ADMIN_ID → admin, остальные → student, все активны"
+    summary: "Автомиграция по ADMIN_ID"
+  - question_num: 11
+    topic: "self_block"
+    agent_question: "Может ли админ заблокировать себя/других админов?"
+    user_answer: "Себя нельзя, других админов можно. ADMIN_ID неудаляем."
+    summary: "Самоблок запрещён, блок других админов разрешён, ADMIN_ID неудаляем"
+  - question_num: 12
+    topic: "error_handling"
+    agent_question: "Подсказка при неправильном формате?"
+    user_answer: "Да, показать правильный формат"
+    summary: "Подсказка с примером правильного формата"
+
+phase1_feature_overview:
+  feature_name:
+    score: 95
+    status: "complete"
+    value: "access-control"
+    gaps: ""
+    required: true
+  feature_description:
+    score: 90
+    status: "complete"
+    value: "Ограничение доступа к боту через whitelist. Управление через админ-команды /allow, /block, /users. Роли: admin, student. Первый админ из .env (ADMIN_ID). Неразрешённые видят 'Доступ ограничен'."
+    gaps: ""
+    required: true
+  work_type:
+    score: 95
+    status: "complete"
+    value: "feature"
+    gaps: ""
+    required: true
+  user_problem:
+    score: 90
+    status: "complete"
+    value: "Бот доступен любому. Нужно ограничить для приватности — это семейный бот."
+    gaps: ""
+    required: true
+  target_users:
+    score: 85
+    status: "complete"
+    value: "Админ (родитель), ученики (дети). Позже — роль parent для уведомлений."
+    gaps: ""
+    required: false
+  success_criteria:
+    score: 90
+    status: "complete"
+    value: "1) Неразрешённые не могут пользоваться ботом. 2) Админ может управлять доступом через команды. 3) Существующие пользователи мигрированы."
+    gaps: ""
+    required: true
+  constraints:
+    score: 85
+    status: "complete"
+    value: "SQLite (добавить колонки role/is_blocked), aiogram middleware, без новых зависимостей, без автотестов"
+    gaps: ""
+    required: true
+  testing_strategy:
+    score: 90
+    status: "complete"
+    value: "Ручная проверка: написать боту с разрешённого и неразрешённого аккаунта. Проект семейный и маленький."
+    gaps: ""
+    required: true
+
+phase2_user_experience:
+  user_stories:
+    score: 90
+    status: "complete"
+    value: |
+      1. Админ: /allow 123 → добавляет ученика
+      2. Админ: /allow 456 admin → добавляет админа
+      3. Админ: /block 123 → блокирует (текущий тест докончить можно)
+      4. Админ: /users → видит список с именами, ролями, статусами
+      5. Неразрешённый: пишет /start → видит "Доступ ограничен"
+      6. Разрешённый: пишет /start → обычное главное меню
+    gaps: ""
+    required: true
+  acceptance_criteria:
+    score: 90
+    status: "complete"
+    value: |
+      AC1: Неразрешённый пользователь видит "Доступ ограничен" на любую команду
+      AC2: /allow добавляет пользователя с указанной ролью (по умолчанию student)
+      AC3: /block блокирует пользователя (текущий тест можно докончить)
+      AC4: /users показывает имя, роль, статус
+      AC5: Только админы могут использовать /allow, /block, /users
+      AC6: ADMIN_ID из .env неудаляем и незаблокируем
+      AC7: Админ не может заблокировать себя
+      AC8: При неправильном формате — подсказка с примером
+      AC9: Существующие пользователи мигрированы (ADMIN_ID→admin, остальные→student)
+    gaps: ""
+    required: true
+  edge_cases:
+    score: 85
+    status: "complete"
+    value: |
+      - /allow уже существующего пользователя → обновить роль
+      - /block уже заблокированного → "уже заблокирован"
+      - /allow без аргументов → подсказка
+      - Блокировка во время теста → тест доканчивается
+      - Попытка заблокировать ADMIN_ID → ошибка
+      - Админ блокирует себя → ошибка
+    gaps: ""
+    required: true
+  error_scenarios:
+    score: 85
+    status: "complete"
+    value: |
+      - Неправильный формат ID → "Используй: /allow 123456789 [student|admin]"
+      - Попытка заблокировать главного админа → "Нельзя заблокировать главного администратора"
+      - Попытка заблокировать себя → "Нельзя заблокировать самого себя"
+      - Не-админ пытается /allow → игнорировать (middleware не пропустит)
+    gaps: ""
+    required: true
+  verification_strategy:
+    score: 85
+    status: "complete"
+    value: "Ручная проверка: написать боту с разрешённого и неразрешённого аккаунта. Проверить все команды. Проверить блокировку во время теста."
+    gaps: ""
+    required: true
+  ui_ux_requirements:
+    score: 85
+    status: "complete"
+    value: "Сообщение для неразрешённых: '❗ Доступ ограничен. Обратитесь к администратору.' Подсказки с форматом для команд."
+    gaps: ""
+    required: false
+  risks:
+    score: 85
+    status: "complete"
+    value: |
+      - Риск: все админы заблокированы → защита: ADMIN_ID из .env неудаляем
+      - Риск: FSM state orphaning при блокировке → низкий (MemoryStorage)
+      - Риск: миграция ломает существующих → защита: все существующие активны
+    gaps: ""
+    required: true
+  technical_decisions:
+    score: 85
+    status: "complete"
+    value: |
+      - Whitelist в БД (не конфиг-файл) для управления через бота
+      - Middleware на уровне Dispatcher для перехвата всех событий
+      - Роли: admin, student (позже parent)
+      - ADMIN_ID в .env как bootstrap
+    gaps: ""
+    required: false
+  deploy_approach:
+    score: 85
+    status: "complete"
+    value: "Бот запускается локально. После обновления — перезапустить. Добавить ADMIN_ID в .env перед запуском."
+    gaps: ""
+    required: false
+  manual_user_actions:
+    score: 85
+    status: "complete"
+    value: "Добавить ADMIN_ID=ваш_telegram_id в .env перед первым запуском после обновления."
+    gaps: ""
+    required: false
+
+phase3_integration:
+  integration_points:
+    score: 90
+    status: "complete"
+    value: "Middleware на dp.message.outer_middleware() и dp.callback_query.outer_middleware(). ALTER TABLE users ADD COLUMN role, is_blocked. Новый router для admin commands."
+    gaps: ""
+    required: true
+  dependencies:
+    score: 85
+    status: "complete"
+    value: "Без новых зависимостей. Использует aiogram BaseMiddleware и aiosqlite."
+    gaps: ""
+    required: false
+  technical_constraints:
+    score: 85
+    status: "complete"
+    value: "SQLite — ALTER TABLE поддерживает ADD COLUMN. aiogram 3.x BaseMiddleware."
+    gaps: ""
+    required: false
+  data_requirements:
+    score: 90
+    status: "complete"
+    value: "Таблица users: добавить role TEXT DEFAULT 'student', is_blocked INTEGER DEFAULT 0. Миграция при запуске."
+    gaps: ""
+    required: false
+  migration_needs:
+    score: 90
+    status: "complete"
+    value: "ALTER TABLE users ADD COLUMN role / is_blocked. Существующие → student/активны. ADMIN_ID → admin."
+    gaps: ""
+    required: false
+
+phase4_completion:
+  userspec_file: "work/access-control/user-spec.md"
+  status: "pending"
+
+decision_rules:
+  required_threshold: 85
+  optional_threshold: 50
+
+progress:
+  current_phase: "spec_creation"
+  questions_asked: 12
+  completion_estimate: "90%"
+  user_detail_level: "moderate"
+
+notes: |
+  - Пользователь ранее уточнил: управление через админ-команды (не .env)
+  - Роли: admin, student (позже parent для фичи уведомлений)
+  - Размер M: middleware + handlers + DB schema + миграция
+  - Фича является первой из двух; вторая (уведомления родителям) будет использовать систему ролей
+  - Деплой: локально, перезапуск вручную
+  - Админ может блокировать других админов, но не себя и не ADMIN_ID
