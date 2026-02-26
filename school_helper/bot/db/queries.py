@@ -86,6 +86,26 @@ async def get_weak_topics(user_id: int) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+async def get_recent_questions(
+    user_id: int, language: str, topic: str, limit: int = 50
+) -> list[str]:
+    """Get recent question texts for a user+language+topic to avoid duplicates."""
+    db = await get_db()
+    cursor = await db.execute(
+        """SELECT qr.question_text
+           FROM question_results qr
+           JOIN test_sessions ts ON qr.session_id = ts.id
+           WHERE ts.user_id = ?
+             AND ts.language = ?
+             AND ts.topic = ?
+           ORDER BY ts.finished_at DESC, qr.id DESC
+           LIMIT ?""",
+        (user_id, language, topic, limit),
+    )
+    rows = await cursor.fetchall()
+    return [row["question_text"] for row in rows]
+
+
 async def get_stats_summary(user_id: int) -> dict:
     """Get overall stats for a user."""
     db = await get_db()

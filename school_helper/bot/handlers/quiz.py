@@ -100,7 +100,13 @@ async def _process_answer(message: Message, state: FSMContext, user_answer: str)
         correct_count += 1
         feedback = "✅ Правильно!"
     else:
-        feedback = f"❌ Неправильно.\n\n📝 Правильный ответ: {q['correct']}"
+        correct_display = q["correct"]
+        # If correct is a single letter, try to resolve from options
+        if len(correct_display) == 1 and correct_display.upper() in "ABCD" and q.get("options"):
+            idx = ord(correct_display.upper()) - ord("A")
+            if 0 <= idx < len(q["options"]):
+                correct_display = q["options"][idx]
+        feedback = f"❌ Неправильно.\n\n📝 Правильный ответ: {correct_display}"
         explanation = q.get("explanation", "")
         if explanation:
             feedback += f"\n\n💡 {explanation}"

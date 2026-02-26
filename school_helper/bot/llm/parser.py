@@ -36,9 +36,11 @@ def parse_questions(raw_text: str) -> list[dict] | None:
         logger.error("Failed to parse LLM response as JSON")
         return None
 
-    # Validate each question
+    # Normalize and validate each question
     valid = []
     for q in questions:
+        if q.get("type") == "multiple_choice":
+            q = _normalize_multiple_choice(q)
         if _validate_question(q):
             valid.append(q)
         else:
@@ -55,6 +57,31 @@ def _try_parse_json(text: str) -> list[dict] | None:
     except (json.JSONDecodeError, TypeError):
         pass
     return None
+
+
+def _normalize_multiple_choice(q: dict) -> dict:
+    """Strip letter prefixes from options and resolve letter-based correct answers."""
+    options = q.get("options", [])
+    letter_re = re.compile(r"^[A-Da-d][).:\s]+")
+
+    # Strip letter prefixes like "A) ", "a. ", "B: " from options
+    cleaned = [letter_re.sub("", opt).strip() for opt in options]
+
+    correct = q.get("correct", "")
+
+    # If correct is a single letter (A/B/C/D), resolve to actual option text
+    if re.match(r"^[A-Da-d]$", correct.strip()):
+        idx = ord(correct.strip().upper()) - ord("A")
+        if 0 <= idx < len(cleaned):
+            correct = cleaned[idx]
+
+    # If correct still has a letter prefix, strip it too
+    correct = letter_re.sub("", correct).strip()
+
+    q = dict(q)
+    q["options"] = cleaned
+    q["correct"] = correct
+    return q
 
 
 def _validate_question(q: dict) -> bool:

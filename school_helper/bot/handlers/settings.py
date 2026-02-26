@@ -32,7 +32,7 @@ async def count_selected(callback: CallbackQuery, state: FSMContext):
     from bot.services.test_generator import generate_test
     from bot.handlers.quiz import start_quiz
 
-    questions = await generate_test(language, topic, count)
+    questions = await generate_test(language, topic, count, user_id=callback.from_user.id)
 
     if not questions:
         from bot.keyboards.main_menu import main_menu_keyboard
