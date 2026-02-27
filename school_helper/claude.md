@@ -26,3 +26,8 @@
   - `git commit -m "vX.Y: краткое описание изменений"`
   - `git tag vX.Y`
   - `git push origin main --tags`
+
+## 4. Глобальные агенты и скиллы
+
+Каталог всех доступных агентов, скиллов и команд (code review, security audit, bug finder и др.):
+`C:\Users\Олег\.claude\AGENTS_CATALOG.md`

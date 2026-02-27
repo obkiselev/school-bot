@@ -6,7 +6,8 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import BOT_TOKEN
-from bot.handlers import start, language, topic, settings, quiz, results, history
+from bot.handlers import admin, start, language, topic, settings, quiz, results, history
+from bot.middleware.access import AccessControlMiddleware
 
 
 async def main():
@@ -21,7 +22,12 @@ async def main():
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
 
-    # Подключаем все роутеры
+    # Middleware контроля доступа
+    dp.message.outer_middleware(AccessControlMiddleware())
+    dp.callback_query.outer_middleware(AccessControlMiddleware())
+
+    # Подключаем все роутеры (admin первым)
+    dp.include_router(admin.router)
     dp.include_router(start.router)
     dp.include_router(language.router)
     dp.include_router(topic.router)

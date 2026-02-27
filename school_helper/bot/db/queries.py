@@ -121,3 +121,53 @@ async def get_stats_summary(user_id: int) -> dict:
     )
     row = await cursor.fetchone()
     return dict(row) if row else {}
+
+
+async def is_user_allowed(user_id: int) -> tuple[bool, str | None]:
+    """Check if user is in whitelist and not blocked. Returns (is_allowed, role)."""
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT role, is_blocked FROM users WHERE user_id = ?",
+        (user_id,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return (False, None)
+    if row["is_blocked"]:
+        return (False, row["role"])
+    return (True, row["role"])
+
+
+async def set_user_access(user_id: int, role: str = "student") -> None:
+    """Add or update a user with given role. Also unblocks if was blocked."""
+    db = await get_db()
+    await db.execute(
+        """INSERT INTO users (user_id, role, is_blocked)
+           VALUES (?, ?, 0)
+           ON CONFLICT(user_id) DO UPDATE SET
+               role = excluded.role,
+               is_blocked = 0""",
+        (user_id, role),
+    )
+    await db.commit()
+
+
+async def block_user(user_id: int) -> bool:
+    """Block a user. Returns True if user existed, False otherwise."""
+    db = await get_db()
+    cursor = await db.execute(
+        "UPDATE users SET is_blocked = 1 WHERE user_id = ?",
+        (user_id,),
+    )
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+async def get_all_users_list() -> list[dict]:
+    """Get all users with their roles and block status."""
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT user_id, first_name, username, role, is_blocked FROM users ORDER BY user_id",
+    )
+    rows = await cursor.fetchall()
+    return [dict(row) for row in rows]

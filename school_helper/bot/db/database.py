@@ -1,7 +1,10 @@
+import logging
 import os
 import aiosqlite
 
-from bot.config import DB_PATH
+from bot.config import DB_PATH, ADMIN_ID
+
+logger = logging.getLogger(__name__)
 
 _db: aiosqlite.Connection | None = None
 
@@ -14,6 +17,7 @@ async def get_db() -> aiosqlite.Connection:
         _db = await aiosqlite.connect(DB_PATH)
         _db.row_factory = aiosqlite.Row
         await _create_tables(_db)
+        await _run_migrations(_db)
     return _db
 
 
@@ -60,4 +64,28 @@ async def _create_tables(db: aiosqlite.Connection):
             FOREIGN KEY (session_id) REFERENCES test_sessions(id)
         );
     """)
+    await db.commit()
+
+
+async def _run_migrations(db: aiosqlite.Connection):
+    """Add access-control columns to users table (idempotent)."""
+    for col_sql in (
+        "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'student'",
+        "ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0",
+    ):
+        try:
+            await db.execute(col_sql)
+        except Exception:
+            pass  # column already exists
+
+    if ADMIN_ID is not None:
+        await db.execute(
+            "INSERT OR IGNORE INTO users (user_id, role, is_blocked) VALUES (?, 'admin', 0)",
+            (ADMIN_ID,),
+        )
+        await db.execute(
+            "UPDATE users SET role = 'admin', is_blocked = 0 WHERE user_id = ?",
+            (ADMIN_ID,),
+        )
+
     await db.commit()

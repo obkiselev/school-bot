@@ -1,12 +1,25 @@
+import logging
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:1234/v1")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5-7b-instruct")
 DB_PATH = os.getenv("DB_PATH", "data/school_helper.db")
+
+_admin_id_raw = os.getenv("ADMIN_ID", "")
+if _admin_id_raw.strip().isdigit():
+    ADMIN_ID: int | None = int(_admin_id_raw.strip())
+else:
+    ADMIN_ID = None
+    if _admin_id_raw.strip():
+        logger.warning("ADMIN_ID is not a valid number: %r — access control disabled", _admin_id_raw)
+    else:
+        logger.warning("ADMIN_ID is not set — access control disabled")
 
 TOPICS = {
     "English": [
