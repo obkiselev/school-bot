@@ -4,6 +4,7 @@ import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand
 
 from bot.config import BOT_TOKEN
 from bot.handlers import admin, start, language, topic, settings, quiz, results, history
@@ -35,6 +36,13 @@ async def main():
     dp.include_router(quiz.router)
     dp.include_router(results.router)
     dp.include_router(history.router)
+
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Главное меню"),
+        BotCommand(command="allow", description="Добавить пользователя (админ)"),
+        BotCommand(command="block", description="Заблокировать пользователя (админ)"),
+        BotCommand(command="users", description="Список пользователей (админ)"),
+    ])
 
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     print("Бот запущен! Нажмите Ctrl+C для остановки.")
