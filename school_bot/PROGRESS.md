@@ -1,6 +1,6 @@
 # School Bot — Прогресс разработки
 
-## Текущая версия: 0.1.9
+## Текущая версия: 0.2.0
 
 ## Статус: Фаза 2 в работе — авторизация через mos.ru (OctoDiary)
 
@@ -68,6 +68,13 @@
 ---
 
 ## Changelog
+
+### v0.2.0 — curl_cffi: обход JA3 TLS-фингерпринтинга login.mos.ru
+- Диагностика подтвердила: TCP OK, TLS от Python/OpenSSL заблокирован по JA3 фингерпринту
+- Установлен curl_cffi 0.14.0 (BoringSSL + Chrome TLS impersonation)
+- OctoDiary async_.py: добавлен _CurlSession wrapper; ClientSession заменён на curl_cffi для MES login
+- OctoDiary enter_sms_code.py: FormData → plain dict (совместимо с curl_cffi)
+- /testauth: добавлен Тест 5 — curl_cffi GET к login.mos.ru для подтверждения Chrome TLS
 
 ### v0.1.9 — TLS-диагностика и увеличение таймаутов
 - Добавлен Тест 4 в /testauth: изолированный TLS-handshake через asyncio.open_connection(ssl=True)

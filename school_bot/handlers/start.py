@@ -17,7 +17,7 @@ router = Router()
 
 
 async def _close_octodiary_session(api) -> None:
-    """Закрыть внутреннюю aiohttp-сессию OctoDiary после диагностического теста."""
+    """Закрыть внутреннюю сессию OctoDiary после диагностического теста."""
     try:
         session = getattr(api, "_login_info", {}).get("session")
         if session and not session.closed:
@@ -37,7 +37,7 @@ async def cmd_test_auth(message: Message):
 
     results = []
 
-    # Тест 1: aiohttp без wait_for — смотрим какая ошибка бросается
+    # Тест 1: aiohttp без wait_for
     t = time.time()
     api = AsyncMobileAPI(system=Systems.MES)
     try:
@@ -54,12 +54,12 @@ async def cmd_test_auth(message: Message):
         results.append(f"Тест 1 ({elapsed:.2f}с): DNS/connect error — {str(e)[:60]}")
     except asyncio.TimeoutError:
         elapsed = time.time() - t
-        results.append(f"Тест 1 ({elapsed:.2f}с): asyncio timeout (внешний)")
+        results.append(f"Тест 1 ({elapsed:.2f}с): asyncio timeout")
     except APIError as e:
         elapsed = time.time() - t
         results.append(
             f"Тест 1 ({elapsed:.2f}с): APIError — {e.error_types} "
-            f"(СЕТЬ РАБОТАЕТ, сервер ответил)"
+            f"(СЕТЬ РАБОТАЕТ)"
         )
     except Exception as e:
         elapsed = time.time() - t
@@ -67,7 +67,7 @@ async def cmd_test_auth(message: Message):
     finally:
         await _close_octodiary_session(api)
 
-    # Тест 2: aiohttp с внешним wait_for(15с)
+    # Тест 2: aiohttp с wait_for(15с)
     t = time.time()
     api = AsyncMobileAPI(system=Systems.MES)
     try:
@@ -92,7 +92,7 @@ async def cmd_test_auth(message: Message):
         elapsed = time.time() - t
         results.append(
             f"Тест 2 ({elapsed:.2f}с): APIError — {e.error_types} "
-            f"(СЕТЬ РАБОТАЕТ, сервер ответил)"
+            f"(СЕТЬ РАБОТАЕТ)"
         )
     except Exception as e:
         elapsed = time.time() - t
@@ -100,7 +100,7 @@ async def cmd_test_auth(message: Message):
     finally:
         await _close_octodiary_session(api)
 
-    # Тест 3: чистый TCP (без TLS) — самый базовый уровень
+    # Тест 3: чистый TCP (без TLS)
     t = time.time()
     try:
         reader, writer = await asyncio.wait_for(
@@ -115,7 +115,7 @@ async def cmd_test_auth(message: Message):
     except OSError as e:
         results.append(f"Тест 3 ({time.time()-t:.2f}с): TCP ERROR — {str(e)[:60]}")
 
-    # Тест 4: TCP + TLS handshake — изолируем именно SSL
+    # Тест 4: TCP + TLS handshake (Python/OpenSSL)
     t = time.time()
     try:
         ssl_ctx = _ssl.create_default_context()
@@ -125,17 +125,33 @@ async def cmd_test_auth(message: Message):
         )
         writer.close()
         await writer.wait_closed()
-        results.append(f"Тест 4 ({time.time()-t:.2f}с): TLS OK — handshake завершён")
+        results.append(f"Тест 4 ({time.time()-t:.2f}с): TLS OK — Python/OpenSSL handshake")
     except asyncio.TimeoutError:
-        results.append(f"Тест 4 ({time.time()-t:.2f}с): TLS TIMEOUT >30с — сервер блокирует SSL")
+        results.append(f"Тест 4 ({time.time()-t:.2f}с): TLS TIMEOUT >30с — OpenSSL заблокирован (JA3)")
     except OSError as e:
         results.append(f"Тест 4 ({time.time()-t:.2f}с): TLS ERROR — {str(e)[:60]}")
+
+    # Тест 5: curl_cffi с Chrome TLS-fingerprint
+    t = time.time()
+    try:
+        from curl_cffi.requests import AsyncSession
+        async with AsyncSession(impersonate="chrome120") as s:
+            resp = await s.get("https://login.mos.ru/", allow_redirects=False)
+        results.append(
+            f"Тест 5 ({time.time()-t:.2f}с): curl_cffi OK — HTTP {resp.status_code} "
+            f"(Chrome TLS работает!)"
+        )
+    except ImportError:
+        results.append("Тест 5: curl_cffi не установлен (pip install curl-cffi)")
+    except Exception as e:
+        elapsed = time.time() - t
+        results.append(f"Тест 5 ({elapsed:.2f}с): curl_cffi ERROR — {type(e).__name__}: {str(e)[:60]}")
 
     report = "\n".join(results)
     hint = (
         "\n\nРасшифровка:\n"
-        "• Тест 3 OK + Тест 4 TIMEOUT → сервер блокирует TLS (нужен прокси)\n"
-        "• Тест 3 OK + Тест 4 OK + Тест 1 timeout → OctoDiary таймаут короткий\n"
+        "• Тест 4 TIMEOUT + Тест 5 OK → JA3 фингерпринт исправлен, авторизация должна работать\n"
+        "• Тест 5 ERROR → curl_cffi тоже не работает (сетевая проблема)\n"
         "• Тест 1 APIError → всё работает"
     )
     logger.info("Auth diagnostic:\n%s", report)
