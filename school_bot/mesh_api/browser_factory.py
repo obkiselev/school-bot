@@ -4,6 +4,7 @@
 Применяет playwright-stealth и ручные JS-скрипты для скрытия автоматизации.
 """
 import logging
+import random
 from typing import Tuple, Any
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,7 @@ _STEALTH_SCRIPTS = [
 ]
 
 # ─── Аргументы запуска Chromium ────────────────────────────────────────────
-_BROWSER_ARGS = [
+_BROWSER_ARGS_BASE = [
     "--no-sandbox",
     "--disable-dev-shm-usage",
     "--disable-blink-features=AutomationControlled",
@@ -98,6 +99,7 @@ _BROWSER_ARGS = [
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
     "--disable-async-dns",       # Использовать системный DNS (не встроенный)
+    "--dns-prefetch-disable",    # Отключить DNS-предзагрузку
     "--lang=ru-RU,ru",
 ]
 
@@ -107,8 +109,12 @@ async def create_stealth_browser(
     apply_stealth: bool = True,
     launch_timeout: int = 30_000,
     navigation_timeout: int = 90_000,
+    proxy: dict = None,
 ) -> Tuple[Any, Any, Any, Any]:
     """Запускает стелс-Chromium с антидетект-настройками.
+
+    Args:
+        proxy: Playwright ProxySettings dict {"server": ..., "username": ..., "password": ...}
 
     Returns:
         (playwright_instance, browser, context, page)
@@ -124,18 +130,29 @@ async def create_stealth_browser(
 
     pw = await _async_playwright().start()
 
-    browser = await pw.chromium.launch(
-        headless=headless,
-        args=_BROWSER_ARGS,
-        timeout=launch_timeout,
-    )
+    browser_args = list(_BROWSER_ARGS_BASE)
+    if not proxy:
+        browser_args.append("--no-proxy-server")
+
+    launch_kwargs = {
+        "headless": headless,
+        "args": browser_args,
+        "timeout": launch_timeout,
+    }
+    if proxy:
+        launch_kwargs["proxy"] = proxy
+
+    browser = await pw.chromium.launch(**launch_kwargs)
 
     # patchright сам управляет User-Agent — НЕ подменяем
     # Для стандартного playwright — ставим актуальный UA
     context_kwargs = {
         "locale": "ru-RU",
         "timezone_id": "Europe/Moscow",
-        "viewport": {"width": 1280, "height": 800},
+        "viewport": {
+            "width": 1280 + random.randint(-20, 20),
+            "height": 800 + random.randint(-20, 20),
+        },
         "extra_http_headers": {
             "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
         },
@@ -175,9 +192,10 @@ async def create_stealth_browser(
     engine = "patchright" if _USE_PATCHRIGHT else "playwright"
     stealth_info = "stealth" if apply_stealth else "без stealth"
     mode = "headless" if headless else "headed"
+    proxy_info = f"proxy={proxy['server']}" if proxy else "direct"
     logger.info(
-        "browser_factory: браузер запущен (%s, %s, %s, v%s)",
-        engine, stealth_info, mode, browser.version,
+        "browser_factory: браузер запущен (%s, %s, %s, %s, v%s)",
+        engine, stealth_info, mode, proxy_info, browser.version,
     )
 
     return pw, browser, context, page

@@ -7,6 +7,7 @@
 import asyncio
 import logging
 import os
+import random
 import re
 from typing import Optional, Dict, Any, Callable, Awaitable
 
@@ -28,6 +29,18 @@ _NAVIGATION_TIMEOUT = 90_000        # навигация / ожидание эл
 _LOGIN_URL_WAIT_TIMEOUT = 30_000    # ожидание редиректа с school.mos.ru на login.mos.ru
 _INPUT_WAIT_TIMEOUT = 30_000        # ожидание поля ввода (было 20s)
 _TOKEN_WAIT_TIMEOUT = 30.0          # сек — ожидание перехвата токена после SMS
+
+# ─── Ключевые слова: mos.ru обнаружил автоматизацию ──────────────────────────
+_SUSPICIOUS_KEYWORDS = [
+    "подозрительная активность",
+    "подозрительную активность",
+    "suspicious activity",
+    "пароль сброшен",
+    "пароль был сброшен",
+    "password has been reset",
+    "вход в сервис не осуществлен",
+    "временно ограничен",
+]
 
 # ─── Debug-скриншоты ──────────────────────────────────────────────────────────
 _DEBUG_DIR = "data"
@@ -93,7 +106,16 @@ class PlaywrightMeshAuth:
                     timeout=_PAGE_LOAD_TIMEOUT,
                 )
             except Exception as e:
-                logger.debug("Playwright: goto: %s (продолжаем)", e)
+                err_str = str(e)
+                # Определяем тип ошибки для диагностики
+                if "ERR_NAME_NOT_RESOLVED" in err_str:
+                    logger.warning("Playwright: goto ОШИБКА DNS: %s", e)
+                elif "ERR_TIMED_OUT" in err_str or "Timeout" in err_str:
+                    logger.warning("Playwright: goto ТАЙМАУТ: %s", e)
+                elif "ERR_CONNECTION" in err_str:
+                    logger.warning("Playwright: goto ОШИБКА СОЕДИНЕНИЯ: %s", e)
+                else:
+                    logger.warning("Playwright: goto ОШИБКА: %s", e)
 
             logger.info("Playwright: URL после goto: %s", self._page.url)
 
@@ -125,7 +147,14 @@ class PlaywrightMeshAuth:
                     "Возможно, сервер временно недоступен."
                 )
 
-            await login_input.fill(login)
+            # Скролл и движение мыши перед вводом (имитация чтения страницы)
+            try:
+                await self._page.mouse.wheel(0, random.randint(50, 150))
+                await asyncio.sleep(random.uniform(0.3, 0.7))
+            except Exception:
+                pass
+            await self._random_mouse_move()
+            await self._human_type(login_input, login)
             logger.debug("Playwright: логин введён")
 
             # ─── Ввод пароля ────────────────────────────────────────────────
@@ -152,36 +181,70 @@ class PlaywrightMeshAuth:
                         "Проверьте правильность логина."
                     )
 
-            await pwd_input.fill(password)
+            await self._random_mouse_move()
+            await self._human_type(pwd_input, password)
             logger.debug("Playwright: пароль введён")
             await self._click_submit()
             await self._screenshot("3_after_password")
 
-            # Ждём секунду, потом проверяем ошибку неверного пароля
-            await asyncio.sleep(1.5)
+            # Случайная пауза, потом проверяем ошибку
+            await self._human_delay(1.5, 3.0)
             await self._check_for_auth_error()
 
-            # ─── SMS-шаг ────────────────────────────────────────────────────
-            sms_input = await self._find_input(
-                [
-                    "input[autocomplete='one-time-code']",
-                    "input[name='code']",
-                    "input[name='smsCode']",
-                    "input[placeholder*='код' i]",
-                    "input[placeholder*='code' i]",
-                ],
-                timeout=_INPUT_WAIT_TIMEOUT,
+            # ─── SMS-шаг или прямой вход ─────────────────────────────────────
+            # Гонка: ждём либо SMS-поле, либо получение токена (вход без SMS)
+            sms_selectors = ", ".join([
+                "input[autocomplete='one-time-code']",
+                "input[name='code']",
+                "input[name='smsCode']",
+                "input[placeholder*='код' i]",
+                "input[placeholder*='code' i]",
+            ])
+
+            async def _wait_sms():
+                try:
+                    return await self._page.wait_for_selector(
+                        sms_selectors, state="visible", timeout=_INPUT_WAIT_TIMEOUT
+                    )
+                except Exception:
+                    return None
+
+            async def _wait_token():
+                try:
+                    await asyncio.wait_for(self._auth_complete, timeout=_INPUT_WAIT_TIMEOUT / 1000)
+                    return True
+                except asyncio.TimeoutError:
+                    return None
+
+            sms_task = asyncio.create_task(_wait_sms())
+            token_task = asyncio.create_task(_wait_token())
+
+            done, pending = await asyncio.wait(
+                [sms_task, token_task], return_when=asyncio.FIRST_COMPLETED
             )
+            for t in pending:
+                t.cancel()
+
+            sms_input = sms_task.result() if sms_task in done else None
+            token_ready = token_task.result() if token_task in done else None
+
+            if token_ready and not sms_input:
+                # Вход прошёл без SMS — токен уже перехвачен
+                logger.info("Playwright: вход без SMS — токен получен")
+                result = await self._finalize_auth()
+                await self._close_browser()
+                return result
 
             if not sms_input:
-                # Вход прошёл без SMS?
+                # Ни SMS, ни токен — проверяем токены на всякий случай
                 if self._mos_access_token or self._mesh_token:
+                    logger.info("Playwright: вход без SMS — токен получен (поздно)")
                     result = await self._finalize_auth()
                     await self._close_browser()
                     return result
                 await self._screenshot("3_no_sms_field")
                 raise NetworkError(
-                    "Шаг SMS не появился. "
+                    "Шаг SMS не появился и токен не получен. "
                     "Возможно, страница входа изменилась (см. data/debug_playwright_*.png)."
                 )
 
@@ -230,9 +293,10 @@ class PlaywrightMeshAuth:
                     "Поле SMS-кода исчезло. Начните регистрацию заново: /start"
                 )
 
-            await sms_input.fill(code)
+            await self._random_mouse_move()
+            await self._human_type(sms_input, code)
             await self._click_submit()
-            await asyncio.sleep(1.5)
+            await self._human_delay(1.5, 3.0)
             await self._screenshot("5_after_sms")
 
             # Проверяем ошибку неверного кода
@@ -453,6 +517,29 @@ class PlaywrightMeshAuth:
     # Вспомогательные методы (UI)
     # ─────────────────────────────────────────────────────────────────────────
 
+    async def _human_type(self, element, text: str) -> None:
+        """Печатает текст посимвольно с человеческими задержками."""
+        await element.click()
+        await asyncio.sleep(random.uniform(0.1, 0.3))
+        for char in text:
+            await element.type(char, delay=random.randint(50, 150))
+            if random.random() < 0.1:
+                await asyncio.sleep(random.uniform(0.2, 0.5))
+
+    async def _human_delay(self, min_s: float = 0.8, max_s: float = 2.5) -> None:
+        """Случайная пауза вместо фиксированной."""
+        await asyncio.sleep(random.uniform(min_s, max_s))
+
+    async def _random_mouse_move(self) -> None:
+        """Перемещает мышь в случайную точку на странице."""
+        try:
+            x = random.randint(100, 900)
+            y = random.randint(100, 600)
+            await self._page.mouse.move(x, y, steps=random.randint(5, 15))
+            await asyncio.sleep(random.uniform(0.1, 0.3))
+        except Exception:
+            pass
+
     async def _wait_for_login_page(self) -> None:
         """Ждёт пока URL изменится на login.mos.ru (без ожидания load)."""
         deadline = asyncio.get_event_loop().time() + _LOGIN_URL_WAIT_TIMEOUT / 1000
@@ -480,6 +567,8 @@ class PlaywrightMeshAuth:
             try:
                 el = await self._page.query_selector(selector)
                 if el and await el.is_visible():
+                    await self._random_mouse_move()
+                    await asyncio.sleep(random.uniform(0.3, 0.8))
                     await el.click()
                     logger.info("Playwright: кнопка МЭШID нажата (%s)", selector)
                     return
@@ -525,6 +614,8 @@ class PlaywrightMeshAuth:
             try:
                 el = await self._page.query_selector(selector)
                 if el and await el.is_visible():
+                    await self._random_mouse_move()
+                    await asyncio.sleep(random.uniform(0.2, 0.5))
                     await el.click()
                     return
             except Exception:
@@ -535,6 +626,15 @@ class PlaywrightMeshAuth:
 
     async def _check_for_auth_error(self) -> None:
         """Проверяет наличие сообщения об ошибке на странице."""
+        _suspicious_msg = (
+            "mos.ru обнаружил подозрительную активность и мог сбросить пароль.\n"
+            "Пожалуйста:\n"
+            "1. Зайдите на mos.ru через обычный браузер\n"
+            "2. Восстановите пароль: https://login.mos.ru/sps/recovery\n"
+            "3. Подождите 30 минут перед повторной попыткой\n"
+            "4. Попробуйте /start заново"
+        )
+
         error_selectors = [
             ".error-message",
             ".alert-danger",
@@ -549,11 +649,25 @@ class PlaywrightMeshAuth:
                     continue
                 text = (await el.inner_text()).strip()
                 if text and 5 < len(text) < 300:
+                    if any(kw in text.lower() for kw in _SUSPICIOUS_KEYWORDS):
+                        await self._screenshot("error_suspicious_activity")
+                        raise AuthenticationError(_suspicious_msg)
                     raise AuthenticationError(f"Ошибка входа: {text}")
             except AuthenticationError:
                 raise
             except Exception:
                 pass
+
+        # Проверка полного текста страницы на "подозрительную активность"
+        try:
+            page_text = (await self._page.inner_text("body")).lower()
+            if any(kw in page_text for kw in _SUSPICIOUS_KEYWORDS):
+                await self._screenshot("error_suspicious_activity")
+                raise AuthenticationError(_suspicious_msg)
+        except AuthenticationError:
+            raise
+        except Exception:
+            pass
 
     async def _check_for_sms_error(self) -> None:
         """Проверяет ошибку после ввода SMS-кода."""
@@ -613,16 +727,20 @@ class PlaywrightMeshAuth:
 
         headless = True
         apply_stealth = True
+        proxy = None
         try:
             from config import settings
             headless = getattr(settings, "MESH_AUTH_HEADLESS", True)
             apply_stealth = getattr(settings, "MESH_AUTH_STEALTH", True)
+            proxy_settings = settings.get_proxy_settings()
+            if proxy_settings:
+                proxy = proxy_settings["playwright"]
         except Exception:
             pass
 
         logger.info(
-            "Playwright: запускаем стелс-Chromium (headless=%s, stealth=%s)...",
-            headless, apply_stealth,
+            "Playwright: запускаем стелс-Chromium (headless=%s, stealth=%s, proxy=%s)...",
+            headless, apply_stealth, "yes" if proxy else "direct",
         )
 
         self._playwright, self._browser, self._context, self._page = (
@@ -631,6 +749,7 @@ class PlaywrightMeshAuth:
                 apply_stealth=apply_stealth,
                 launch_timeout=_BROWSER_LAUNCH_TIMEOUT,
                 navigation_timeout=_NAVIGATION_TIMEOUT,
+                proxy=proxy,
             )
         )
         logger.info("Playwright: стелс-браузер запущен")

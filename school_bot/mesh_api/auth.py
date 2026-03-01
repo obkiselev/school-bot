@@ -1,6 +1,7 @@
 """Authentication handler for МЭШ API via OctoDiary."""
 import asyncio
 import logging
+import time
 from typing import Optional, Dict, Any, Callable, Awaitable
 
 from octodiary.apis.async_ import AsyncMobileAPI
@@ -10,9 +11,12 @@ from octodiary.exceptions import APIError
 
 from .exceptions import AuthenticationError, NetworkError
 
-# Таймаут одной попытки start_login (шаги 1–4 на login.mos.ru).
-# curl_cffi + Chrome TLS: шаги занимают < 0.5с суммарно. 10с — запас на нестабильную сеть.
-_LOGIN_TIMEOUT = 10
+logger = logging.getLogger(__name__)
+
+# Таймаут одной попытки start_login (5 шагов на login.mos.ru).
+# Каждый шаг = TLS-хэндшейк (BoringSSL) + HTTP-запрос.
+# На медленной сети один TLS-хэндшейк может занимать 5-10с → 60с на все 5 шагов.
+_LOGIN_TIMEOUT = 60
 # Таймаут verify_sms (шаг 5 на school.mos.ru может быть медленным).
 _SMS_TIMEOUT = 90
 # Максимальное число попыток start_login при сетевой ошибке/таймауте.
@@ -25,15 +29,26 @@ _LOGIN_PORT = 443
 _TCP_CHECK_TIMEOUT = 5  # секунд
 
 
-async def _check_server_reachable() -> bool:
-    """Быстрая TCP-проверка login.mos.ru:443 перед авторизацией.
+async def _check_server_reachable(proxy_url: str = None) -> bool:
+    """Быстрая TCP-проверка доступности перед авторизацией.
 
-    Возвращает True если сервер принимает TCP-соединения, False иначе.
-    Позволяет сразу определить недоступность сервера без ожидания _LOGIN_TIMEOUT.
+    Если proxy_url задан — проверяет доступность прокси-сервера.
+    Иначе — проверяет login.mos.ru:443 напрямую.
     """
+    if proxy_url:
+        from urllib.parse import urlparse
+        parsed = urlparse(proxy_url)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or (1080 if "socks" in (parsed.scheme or "") else 8080)
+        label = f"proxy {host}:{port}"
+    else:
+        host = _LOGIN_HOST
+        port = _LOGIN_PORT
+        label = f"{_LOGIN_HOST}:{_LOGIN_PORT}"
+
     try:
         _, writer = await asyncio.wait_for(
-            asyncio.open_connection(_LOGIN_HOST, _LOGIN_PORT),
+            asyncio.open_connection(host, port),
             timeout=_TCP_CHECK_TIMEOUT,
         )
         writer.close()
@@ -43,16 +58,70 @@ async def _check_server_reachable() -> bool:
             pass
         return True
     except Exception as e:
-        logger.debug("TCP pre-check %s:%d failed: %s", _LOGIN_HOST, _LOGIN_PORT, e)
+        logger.debug("TCP pre-check %s failed: %s", label, e)
         return False
 
-logger = logging.getLogger(__name__)
+
+_CURL_TLS_TIMEOUT = 15  # секунд на TLS-проверку через curl_cffi
+
+
+async def _check_curl_cffi_tls(proxy_url: str = None) -> bool:
+    """Быстрая TLS-проверка через curl_cffi: GET https://login.mos.ru/.
+
+    Проверяет что curl_cffi с Chrome TLS impersonation может пройти
+    TLS-хэндшейк. Если нет — нет смысла ждать полный _LOGIN_TIMEOUT.
+    """
+    try:
+        from curl_cffi.requests import AsyncSession
+        kwargs = {"impersonate": "chrome124", "timeout": _CURL_TLS_TIMEOUT}
+        if proxy_url:
+            kwargs["proxy"] = proxy_url
+        async with AsyncSession(**kwargs) as s:
+            import time
+            t0 = time.monotonic()
+            resp = await s.get(f"https://{_LOGIN_HOST}/")
+            elapsed = time.monotonic() - t0
+            logger.info(
+                "curl_cffi TLS pre-check: HTTP %d за %.1fс (proxy=%s)",
+                resp.status_code, elapsed, "yes" if proxy_url else "direct",
+            )
+            return True
+    except ImportError:
+        logger.debug("curl_cffi не установлен, пропускаем TLS pre-check")
+        return True  # если curl_cffi нет — пусть OctoDiary сам разберётся
+    except Exception as e:
+        logger.warning("curl_cffi TLS pre-check failed: %s", e)
+        return False
 
 
 # Хранилище незавершённых сессий авторизации (ожидание SMS-кода).
 # Ключ — Telegram user_id, значение — объект MeshAuth с открытой сессией.
 # Очищается после завершения авторизации или по таймауту.
 _pending_auth: Dict[int, "MeshAuth"] = {}
+
+# Кулдаун между попытками авторизации (защита от "долбёжки" сервера)
+_AUTH_COOLDOWN_SECONDS = 60
+_last_auth_attempt: Dict[int, float] = {}
+
+
+def check_auth_cooldown(user_id: int) -> Optional[int]:
+    """Проверить кулдаун авторизации для пользователя.
+
+    Returns:
+        None если можно продолжать, или число оставшихся секунд.
+    """
+    last = _last_auth_attempt.get(user_id)
+    if last is None:
+        return None
+    remaining = _AUTH_COOLDOWN_SECONDS - (time.monotonic() - last)
+    if remaining <= 0:
+        return None
+    return int(remaining) + 1
+
+
+def record_auth_attempt(user_id: int) -> None:
+    """Записать попытку авторизации для кулдауна."""
+    _last_auth_attempt[user_id] = time.monotonic()
 
 
 def get_pending_auth(user_id: int) -> Optional["MeshAuth"]:
@@ -68,9 +137,19 @@ def clear_pending_auth(user_id: int) -> None:
 class MeshAuth:
     """Handles authentication with МЭШ API via OctoDiary."""
 
-    def __init__(self):
+    def __init__(self, proxy_url: str = None):
         self.api = AsyncMobileAPI(system=Systems.MES)
+        if proxy_url:
+            self.api._proxy = proxy_url
+        self._proxy_url = proxy_url
         self._pending_sms: Optional[EnterSmsCode] = None
+
+    def _new_api(self) -> AsyncMobileAPI:
+        """Создать новый AsyncMobileAPI с сохранением настроек прокси."""
+        api = AsyncMobileAPI(system=Systems.MES)
+        if self._proxy_url:
+            api._proxy = self._proxy_url
+        return api
 
     async def _close_api_session(self) -> None:
         """Закрыть незавершённую aiohttp-сессию octodiary (после таймаута/ошибки)."""
@@ -104,17 +183,6 @@ class MeshAuth:
             AuthenticationError: Неверные учётные данные
             NetworkError: Ошибка сети
         """
-        # Быстрая TCP-проверка доступности сервера.
-        tcp_ok = await _check_server_reachable()
-        if tcp_ok:
-            logger.info("TCP pre-check %s:%d: OK", _LOGIN_HOST, _LOGIN_PORT)
-        else:
-            logger.warning("TCP pre-check %s:%d: FAIL (нет TCP-соединения)", _LOGIN_HOST, _LOGIN_PORT)
-            raise NetworkError(
-                f"Сервер {_LOGIN_HOST} недоступен (нет TCP-соединения). "
-                "Попробуйте позже."
-            )
-
         result = None
         for attempt in range(1, _AUTH_RETRIES + 1):
             try:
@@ -129,7 +197,7 @@ class MeshAuth:
                     attempt, _AUTH_RETRIES, _LOGIN_TIMEOUT,
                 )
                 await self._close_api_session()
-                self.api = AsyncMobileAPI(system=Systems.MES)
+                self.api = self._new_api()
                 if attempt < _AUTH_RETRIES:
                     if on_retry:
                         await on_retry(attempt, _AUTH_RETRIES)
@@ -142,7 +210,7 @@ class MeshAuth:
                     )
             except APIError as e:
                 await self._close_api_session()
-                self.api = AsyncMobileAPI(system=Systems.MES)
+                self.api = self._new_api()
                 if e.error_types in ("InvalidCredentials", "NotFound"):
                     raise AuthenticationError("Неверный логин или пароль")
                 elif e.error_types == "TemporarilyBlocked":
@@ -154,7 +222,7 @@ class MeshAuth:
                     raise NetworkError(f"Ошибка входа: {e}")
             except Exception as e:
                 await self._close_api_session()
-                self.api = AsyncMobileAPI(system=Systems.MES)
+                self.api = self._new_api()
                 logger.error("Сетевая ошибка при входе (попытка %d): %s", attempt, e)
                 if attempt < _AUTH_RETRIES:
                     if on_retry:
@@ -322,16 +390,50 @@ except ImportError:
 class HybridMeshAuth:
     """Пробует PlaywrightMeshAuth, при неудаче — откат на curl_cffi MeshAuth.
 
-    Откат происходит во время работы (не только при импорте): если браузер
-    запустился, но страница не загрузилась (about:blank) — переключаемся
-    на HTTP-подход через curl_cffi/OctoDiary.
+    Порядок авторизации:
+    1. TCP pre-check (прокси или login.mos.ru напрямую)
+    2. Playwright (реальный браузер, свой TLS) — пробуем первым
+    3. Если Playwright не смог → TLS pre-check через curl_cffi
+    4. Если TLS OK → curl_cffi fallback
+    5. Если TLS FAIL → ошибка с советом настроить прокси
     """
 
     def __init__(self):
         self._impl = None
 
     async def start_login(self, login, password, on_retry=None):
-        # Пробуем Playwright со стелсом
+        # Читаем прокси из конфига
+        proxy_url = None
+        try:
+            from config import settings
+            proxy_settings = settings.get_proxy_settings()
+            if proxy_settings:
+                proxy_url = proxy_settings["curl_cffi"]
+                logger.info("Прокси для авторизации: %s", proxy_settings["url"])
+        except Exception:
+            pass
+
+        # Шаг 1: TCP pre-check (прокси или login.mos.ru напрямую)
+        tcp_ok = await _check_server_reachable(proxy_url)
+        if tcp_ok:
+            target = "прокси" if proxy_url else f"{_LOGIN_HOST}:{_LOGIN_PORT}"
+            logger.info("TCP pre-check %s: OK", target)
+        else:
+            logger.warning("TCP pre-check: FAIL")
+            if proxy_url and ("127.0.0.1" in proxy_url or "localhost" in proxy_url):
+                raise NetworkError(
+                    "SSH-туннель не готов (локальный прокси-порт не отвечает). "
+                    "Проверьте SSH-подключение или перезапустите бота."
+                )
+            target = "Прокси-сервер" if proxy_url else f"Сервер {_LOGIN_HOST}"
+            raise NetworkError(
+                f"{target} недоступен (нет TCP-соединения). "
+                "Попробуйте позже."
+            )
+
+        # Шаг 2: Playwright (реальный браузер) — пробуем первым.
+        # Playwright использует свой TLS (Chromium BoringSSL), поэтому
+        # curl_cffi TLS pre-check не нужен перед ним.
         if _has_playwright:
             try:
                 self._impl = PlaywrightMeshAuth()
@@ -343,15 +445,28 @@ class HybridMeshAuth:
                         "Playwright не смог загрузить страницу, "
                         "переключаемся на curl_cffi: %s", e,
                     )
-                    # Продолжаем к curl_cffi fallback
                 else:
                     raise
             except Exception as e:
                 logger.warning("Playwright ошибка, пробуем curl_cffi: %s", e)
 
-        # Fallback: curl_cffi через OctoDiary
+        # Шаг 3: TLS pre-check через curl_cffi (только перед curl_cffi fallback)
+        tls_ok = await _check_curl_cffi_tls(proxy_url)
+        if not tls_ok:
+            logger.warning("curl_cffi TLS pre-check: FAIL")
+            msg = "Сервер login.mos.ru блокирует подключение (TLS)."
+            if not proxy_url:
+                msg += (
+                    " Попробуйте настроить прокси: добавьте MESH_PROXY_URL в .env файл"
+                    " (например: MESH_PROXY_URL=socks5://host:port)."
+                )
+            else:
+                msg += " Прокси не помог. Попробуйте другой прокси или подождите."
+            raise NetworkError(msg)
+
+        # Шаг 4: curl_cffi fallback через OctoDiary
         logger.info("Используем curl_cffi fallback для авторизации")
-        self._impl = _CurlCffiMeshAuth()
+        self._impl = _CurlCffiMeshAuth(proxy_url=proxy_url)
         return await self._impl.start_login(login, password, on_retry)
 
     async def verify_sms(self, code):

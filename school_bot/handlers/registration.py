@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 
 from states.registration import RegistrationStates
 from database.crud import create_user, add_child, create_default_notifications, log_activity
-from mesh_api.auth import MeshAuth, _pending_auth, clear_pending_auth
+from mesh_api.auth import MeshAuth, _pending_auth, clear_pending_auth, check_auth_cooldown, record_auth_attempt
 from mesh_api.models import student_from_octodiary
 from mesh_api.exceptions import AuthenticationError, NetworkError, MeshAPIError
 
@@ -65,6 +65,16 @@ async def process_mesh_password(message: Message, state: FSMContext):
         await state.clear()
         return
 
+    # Проверка кулдауна (защита от частых попыток)
+    user_id = message.from_user.id
+    remaining = check_auth_cooldown(user_id)
+    if remaining:
+        await message.answer(
+            f"Слишком частые попытки входа.\n"
+            f"Подождите {remaining} секунд перед следующей попыткой."
+        )
+        return
+
     # Show verification message
     verify_msg = await message.answer(
         "Подключаюсь к серверу МЭШ...\n"
@@ -72,7 +82,7 @@ async def process_mesh_password(message: Message, state: FSMContext):
     )
 
     # Try to authenticate
-    user_id = message.from_user.id
+    record_auth_attempt(user_id)
     auth = MeshAuth()
 
     async def on_retry(attempt: int, total: int) -> None:
