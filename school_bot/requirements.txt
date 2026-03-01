@@ -8,5 +8,7 @@ pytz==2024.2
 beautifulsoup4==4.12.3
 lxml==5.3.0
 aiosqlite==0.20.0
+octodiary @ git+https://github.com/Mag329/OctoDiary-py.git
+requests>=2.31.0
 pytest==8.3.4
 pytest-asyncio==0.24.0
