@@ -1,6 +1,6 @@
 # School Bot — Прогресс разработки
 
-## Текущая версия: 0.1.7
+## Текущая версия: 0.1.8
 
 ## Статус: Фаза 2 в работе — авторизация через mos.ru (OctoDiary)
 
@@ -68,6 +68,12 @@
 ---
 
 ## Changelog
+
+### v0.1.8 — Диагностика таймаутов МЭШ
+- Увеличен connect timeout OctoDiary: 5с → 15с, total: 15с → 30с (патч installed package)
+- Переписан /testauth: правильный порядок except (aiohttp.ConnectionTimeoutError перед asyncio.TimeoutError)
+- Добавлен Тест 3 в /testauth: чистый TCP-коннект к login.mos.ru:443 через asyncio.open_connection
+- Расшифровка результатов в конце вывода /testauth
 
 ### v0.1.7 — Исправление авторизации МЭШ
 - Заменена зависимость octodiary==0.3.0 (PyPI) → форк Mag329/OctoDiary-py с исправленными заголовками (Accept: */*)
