@@ -1,5 +1,6 @@
 """Start command handler."""
 import asyncio
+import ssl as _ssl
 import time
 import logging
 import aiohttp
@@ -15,6 +16,16 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
+async def _close_octodiary_session(api) -> None:
+    """Закрыть внутреннюю aiohttp-сессию OctoDiary после диагностического теста."""
+    try:
+        session = getattr(api, "_login_info", {}).get("session")
+        if session and not session.closed:
+            await session.close()
+    except Exception:
+        pass
+
+
 @router.message(Command("testauth"))
 async def cmd_test_auth(message: Message):
     """Диагностика соединения с МЭШ — тест изнутри бота."""
@@ -26,17 +37,17 @@ async def cmd_test_auth(message: Message):
 
     results = []
 
-    # Тест 1: без wait_for — смотрим какая ошибка бросается
+    # Тест 1: aiohttp без wait_for — смотрим какая ошибка бросается
     t = time.time()
+    api = AsyncMobileAPI(system=Systems.MES)
     try:
-        api = AsyncMobileAPI(system=Systems.MES)
         await api.login("diag_test@test.ru", "WrongPass_Diag1")
         results.append(f"Тест 1: НЕОЖИДАННЫЙ УСПЕХ ({time.time()-t:.2f}с)")
     except aiohttp.ConnectionTimeoutError:
         elapsed = time.time() - t
         results.append(
             f"Тест 1 ({elapsed:.2f}с): OctoDiary connect timeout — "
-            f"login.mos.ru не ответил на TCP за {elapsed:.0f}с"
+            f"TCP+TLS не завершился за {elapsed:.0f}с"
         )
     except aiohttp.ClientConnectorError as e:
         elapsed = time.time() - t
@@ -53,11 +64,13 @@ async def cmd_test_auth(message: Message):
     except Exception as e:
         elapsed = time.time() - t
         results.append(f"Тест 1 ({elapsed:.2f}с): {type(e).__name__}: {str(e)[:60]}")
+    finally:
+        await _close_octodiary_session(api)
 
-    # Тест 2: с wait_for(15) — наш внешний таймаут поверх OctoDiary
+    # Тест 2: aiohttp с внешним wait_for(15с)
     t = time.time()
+    api = AsyncMobileAPI(system=Systems.MES)
     try:
-        api = AsyncMobileAPI(system=Systems.MES)
         await asyncio.wait_for(
             api.login("diag_test2@test.ru", "WrongPass_Diag2"),
             timeout=15,
@@ -67,14 +80,14 @@ async def cmd_test_auth(message: Message):
         elapsed = time.time() - t
         results.append(
             f"Тест 2 ({elapsed:.2f}с): OctoDiary connect timeout — "
-            f"login.mos.ru не ответил на TCP за {elapsed:.0f}с"
+            f"TCP+TLS не завершился за {elapsed:.0f}с"
         )
     except aiohttp.ClientConnectorError as e:
         elapsed = time.time() - t
         results.append(f"Тест 2 ({elapsed:.2f}с): DNS/connect error — {str(e)[:60]}")
     except asyncio.TimeoutError:
         elapsed = time.time() - t
-        results.append(f"Тест 2 ({elapsed:.2f}с): asyncio.wait_for(15с) истёк — сервер очень медленный")
+        results.append(f"Тест 2 ({elapsed:.2f}с): asyncio.wait_for(15с) истёк")
     except APIError as e:
         elapsed = time.time() - t
         results.append(
@@ -84,8 +97,10 @@ async def cmd_test_auth(message: Message):
     except Exception as e:
         elapsed = time.time() - t
         results.append(f"Тест 2 ({elapsed:.2f}с): {type(e).__name__}: {str(e)[:60]}")
+    finally:
+        await _close_octodiary_session(api)
 
-    # Тест 3: чистый TCP — обходит aiohttp полностью
+    # Тест 3: чистый TCP (без TLS) — самый базовый уровень
     t = time.time()
     try:
         reader, writer = await asyncio.wait_for(
@@ -96,16 +111,32 @@ async def cmd_test_auth(message: Message):
         await writer.wait_closed()
         results.append(f"Тест 3 ({time.time()-t:.2f}с): TCP OK — login.mos.ru:443 доступен")
     except asyncio.TimeoutError:
-        results.append(f"Тест 3 ({time.time()-t:.2f}с): TCP TIMEOUT — порт 443 не отвечает за 5с")
+        results.append(f"Тест 3 ({time.time()-t:.2f}с): TCP TIMEOUT — порт 443 не отвечает")
     except OSError as e:
-        results.append(f"Тест 3 ({time.time()-t:.2f}с): TCP ERROR — {type(e).__name__}: {str(e)[:60]}")
+        results.append(f"Тест 3 ({time.time()-t:.2f}с): TCP ERROR — {str(e)[:60]}")
+
+    # Тест 4: TCP + TLS handshake — изолируем именно SSL
+    t = time.time()
+    try:
+        ssl_ctx = _ssl.create_default_context()
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection("login.mos.ru", 443, ssl=ssl_ctx),
+            timeout=30,
+        )
+        writer.close()
+        await writer.wait_closed()
+        results.append(f"Тест 4 ({time.time()-t:.2f}с): TLS OK — handshake завершён")
+    except asyncio.TimeoutError:
+        results.append(f"Тест 4 ({time.time()-t:.2f}с): TLS TIMEOUT >30с — сервер блокирует SSL")
+    except OSError as e:
+        results.append(f"Тест 4 ({time.time()-t:.2f}с): TLS ERROR — {str(e)[:60]}")
 
     report = "\n".join(results)
     hint = (
         "\n\nРасшифровка:\n"
-        "• Тест 3 = TCP OK + Тест 1/2 = OctoDiary timeout → сервер медленный (таймаут увеличен до 15с)\n"
-        "• Тест 3 = TCP TIMEOUT → login.mos.ru недоступен с этого IP\n"
-        "• Тест 1/2 = APIError (неверные реквизиты) → всё работает"
+        "• Тест 3 OK + Тест 4 TIMEOUT → сервер блокирует TLS (нужен прокси)\n"
+        "• Тест 3 OK + Тест 4 OK + Тест 1 timeout → OctoDiary таймаут короткий\n"
+        "• Тест 1 APIError → всё работает"
     )
     logger.info("Auth diagnostic:\n%s", report)
     await message.answer(f"Результаты:\n{report}{hint}")

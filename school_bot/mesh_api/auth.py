@@ -10,8 +10,10 @@ from octodiary.exceptions import APIError
 
 from .exceptions import AuthenticationError, NetworkError
 
-# Таймаут ожидания ответа от МЭШ (секунды)
-_AUTH_TIMEOUT = 20
+# Таймаут ожидания ответа от МЭШ (секунды).
+# TLS-handshake login.mos.ru может занимать 15-20с, а flow состоит из
+# нескольких запросов подряд — суммарно до 90 секунд.
+_AUTH_TIMEOUT = 90
 
 logger = logging.getLogger(__name__)
 

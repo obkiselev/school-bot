@@ -1,6 +1,6 @@
 # School Bot — Прогресс разработки
 
-## Текущая версия: 0.1.8
+## Текущая версия: 0.1.9
 
 ## Статус: Фаза 2 в работе — авторизация через mos.ru (OctoDiary)
 
@@ -68,6 +68,12 @@
 ---
 
 ## Changelog
+
+### v0.1.9 — TLS-диагностика и увеличение таймаутов
+- Добавлен Тест 4 в /testauth: изолированный TLS-handshake через asyncio.open_connection(ssl=True)
+- Исправлены утечки сессий в /testauth: finally-блок закрывает внутреннюю aiohttp-сессию OctoDiary
+- OctoDiary: connect timeout 15с → 30с, total 30с → 120с (TLS login.mos.ru ~15-20с)
+- auth.py: _AUTH_TIMEOUT 20с → 90с (flow = несколько запросов, каждый может ждать TLS)
 
 ### v0.1.8 — Диагностика таймаутов МЭШ
 - Увеличен connect timeout OctoDiary: 5с → 15с, total: 15с → 30с (патч installed package)
