@@ -131,29 +131,80 @@ async def cmd_test_auth(message: Message):
     except OSError as e:
         results.append(f"Тест 4 ({time.time()-t:.2f}с): TLS ERROR — {str(e)[:60]}")
 
-    # Тест 5: curl_cffi с Chrome TLS-fingerprint
+    # Тест 5: curl_cffi GET к root login.mos.ru
     t = time.time()
     try:
         from curl_cffi.requests import AsyncSession
-        async with AsyncSession(impersonate="chrome120") as s:
+        async with AsyncSession(impersonate="chrome124") as s:
             resp = await s.get("https://login.mos.ru/", allow_redirects=False)
         results.append(
-            f"Тест 5 ({time.time()-t:.2f}с): curl_cffi OK — HTTP {resp.status_code} "
-            f"(Chrome TLS работает!)"
+            f"Тест 5 ({time.time()-t:.2f}с): curl_cffi OK — HTTP {resp.status_code}"
         )
     except ImportError:
         results.append("Тест 5: curl_cffi не установлен (pip install curl-cffi)")
     except Exception as e:
         elapsed = time.time() - t
-        results.append(f"Тест 5 ({elapsed:.2f}с): curl_cffi ERROR — {type(e).__name__}: {str(e)[:60]}")
+        results.append(f"Тест 5 ({elapsed:.2f}с): curl_cffi ERROR — {str(e)[:80]}")
+
+    # Тест 6: curl_cffi POST к /sps/oauth/register (первый реальный шаг OAuth)
+    t = time.time()
+    try:
+        from curl_cffi.requests import AsyncSession
+        async with AsyncSession(impersonate="chrome124") as s:
+            resp = await s.post(
+                "https://login.mos.ru/sps/oauth/register",
+                headers={"Authorization": "Bearer FqzGn1dTJ9BQCHgV0rmMjtYFIgaFf9TrGVEzgtju-zbtIbeJSkIyDcl0e2QMirTNpEqovTT8NvOLZI0XklVEIw"},
+                json={"software_id": "dnevnik.mos.ru", "device_type": "android_phone"},
+            )
+        results.append(
+            f"Тест 6 ({time.time()-t:.2f}с): OAuth API OK — HTTP {resp.status_code} "
+            f"(curl_cffi достигает API МЭШ!)"
+        )
+    except ImportError:
+        results.append("Тест 6: curl_cffi не установлен")
+    except Exception as e:
+        elapsed = time.time() - t
+        results.append(f"Тест 6 ({elapsed:.2f}с): OAuth API ERROR — {str(e)[:80]}")
 
     report = "\n".join(results)
-    hint = (
-        "\n\nРасшифровка:\n"
-        "• Тест 4 TIMEOUT + Тест 5 OK → JA3 фингерпринт исправлен, авторизация должна работать\n"
-        "• Тест 5 ERROR → curl_cffi тоже не работает (сетевая проблема)\n"
-        "• Тест 1 APIError → всё работает"
-    )
+
+    # Динамическая расшифровка на основе реальных результатов
+    test2_ok = any("СЕТЬ РАБОТАЕТ" in r for r in results)
+    test4_timeout = any("Тест 4" in r and "TIMEOUT" in r for r in results)
+    test5_ok = any("Тест 5" in r and "OK" in r for r in results)
+    test6_ok = any("Тест 6" in r and "OK" in r for r in results)
+
+    hints = ["\n\nРасшифровка:"]
+    if test2_ok:
+        hints.append("✅ Тест 2 OK — curl_cffi работает, OAuth-шаги 1-3 проходят")
+    else:
+        hints.append("❌ Тест 2 FAIL — соединение с МЭШ не работает")
+
+    if test4_timeout and test2_ok:
+        hints.append("✅ Тест 4 TIMEOUT + Тест 2 OK — JA3 обходится через curl_cffi")
+    elif not test4_timeout:
+        hints.append("⚠️ Тест 4 OK — Python/OpenSSL не заблокирован (неожиданно)")
+
+    if test6_ok:
+        hints.append("✅ Тест 6 OK — прямой POST к OAuth API работает")
+    elif test2_ok:
+        hints.append("⚠️ Тест 6 ERROR при Тест 2 OK — возможна проблема со software_statement")
+    else:
+        hints.append("❌ Тест 6 ERROR — curl_cffi не достигает OAuth API")
+
+    if test5_ok:
+        hints.append("ℹ️ Тест 5 OK — root login.mos.ru доступен")
+    elif test2_ok:
+        hints.append("ℹ️ Тест 5 ERROR при Тест 2 OK — root блокирован, но API работает (норма)")
+    else:
+        hints.append("❌ Тест 5 ERROR — login.mos.ru недоступен даже через curl_cffi")
+
+    if test2_ok and not test6_ok:
+        hints.append("\n🔍 Вероятная причина ошибки входа: шаг 4+ OAuth (sms/bind или /sps/oauth/te)")
+    elif not test2_ok:
+        hints.append("\n🔴 Авторизация невозможна — проверьте сетевое подключение")
+
+    hint = "\n".join(hints)
     logger.info("Auth diagnostic:\n%s", report)
     await message.answer(f"Результаты:\n{report}{hint}")
 

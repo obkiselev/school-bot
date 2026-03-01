@@ -1,6 +1,6 @@
 # School Bot — Прогресс разработки
 
-## Текущая версия: 0.2.0
+## Текущая версия: 0.2.1
 
 ## Статус: Фаза 2 в работе — авторизация через mos.ru (OctoDiary)
 
@@ -68,6 +68,21 @@
 ---
 
 ## Changelog
+
+### v0.2.1 — Stealth-браузер: patchright + обход антибот-защиты mos.ru
+- Новый модуль `mesh_api/browser_factory.py` — запуск "невидимого" Chromium
+  - Приоритет: patchright (обход CDP-детекции) → fallback на стандартный playwright
+  - playwright-stealth + ручные JS-скрипты (только для стандартного playwright, не для patchright)
+  - `--disable-async-dns` — решена проблема DNS (Chromium использовал мёртвый VPN-DNS вместо системного)
+- Переработан `playwright_auth.py` — новый flow school.mos.ru:
+  - school.mos.ru теперь React SPA с кнопкой "МЭШID" (больше нет авторедиректа на login.mos.ru)
+  - `_click_meshid_button()` — клик по кнопке МЭШID
+  - `_wait_for_login_page()` — поллинг URL вместо wait_for_url (не ждёт load event)
+  - login.mos.ru: логин и пароль на одной странице (поддержка и старого, и нового flow)
+  - `wait_until="networkidle"` вместо `"commit"` для React SPA
+- `HybridMeshAuth` в `auth.py` — автооткат Playwright → curl_cffi при неудаче
+- Настройки в `config.py`: `MESH_AUTH_HEADLESS`, `MESH_AUTH_STEALTH`
+- Зависимости: +patchright, +playwright-stealth
 
 ### v0.2.0 — curl_cffi: обход JA3 TLS-фингерпринтинга login.mos.ru
 - Диагностика подтвердила: TCP OK, TLS от Python/OpenSSL заблокирован по JA3 фингерпринту

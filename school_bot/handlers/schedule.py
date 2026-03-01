@@ -178,7 +178,8 @@ def _parse_callback_data(data: str) -> Optional[tuple]:
 
 
 async def _fetch_week_schedule(
-    client: MeshClient, student_id: int, today: date, token: str
+    client: MeshClient, student_id: int, today: date, token: str,
+    person_id: Optional[str] = None, mes_role: str = "parent",
 ) -> Optional[str]:
     """
     Получает расписание на неделю (Пн-Пт).
@@ -196,7 +197,10 @@ async def _fetch_week_schedule(
 
     for day_date in week_dates:
         try:
-            lessons = await client.get_schedule(student_id, day_date.isoformat(), token)
+            lessons = await client.get_schedule(
+                student_id, day_date.isoformat(), token,
+                person_id=person_id, mes_role=mes_role,
+            )
             results.append((day_date, lessons))
         except AuthenticationError:
             raise  # Не маскируем — пусть вызывающий покажет "перерегистрируйтесь"
@@ -211,7 +215,8 @@ async def _fetch_week_schedule(
 
 
 async def _get_schedule_text(
-    student_id: int, period: str, token: str
+    student_id: int, period: str, token: str,
+    person_id: Optional[str] = None, mes_role: str = "parent",
 ) -> Tuple[str, InlineKeyboardMarkup]:
     """
     Получает текст расписания и клавиатуру для указанного периода.
@@ -228,21 +233,33 @@ async def _get_schedule_text(
     client = MeshClient()
     try:
         if period == "today":
-            lessons = await client.get_schedule(student_id, today.isoformat(), token)
+            lessons = await client.get_schedule(
+                student_id, today.isoformat(), token,
+                person_id=person_id, mes_role=mes_role,
+            )
             text = _format_day_schedule(today, lessons)
         elif period == "tomorrow":
             tomorrow = today + timedelta(days=1)
-            lessons = await client.get_schedule(student_id, tomorrow.isoformat(), token)
+            lessons = await client.get_schedule(
+                student_id, tomorrow.isoformat(), token,
+                person_id=person_id, mes_role=mes_role,
+            )
             text = _format_day_schedule(tomorrow, lessons)
         elif period == "week":
-            week_text = await _fetch_week_schedule(client, student_id, today, token)
+            week_text = await _fetch_week_schedule(
+                client, student_id, today, token,
+                person_id=person_id, mes_role=mes_role,
+            )
             if week_text is None:
                 # Все 5 дней упали — бросаем общую ошибку
                 raise MeshAPIError("Не удалось загрузить расписание на неделю")
             text = week_text
         else:
             # Неизвестный период — по умолчанию сегодня
-            lessons = await client.get_schedule(student_id, today.isoformat(), token)
+            lessons = await client.get_schedule(
+                student_id, today.isoformat(), token,
+                person_id=person_id, mes_role=mes_role,
+            )
             text = _format_day_schedule(today, lessons)
     finally:
         await client.close()
@@ -265,10 +282,17 @@ async def _handle_schedule_request(
 
     # IDOR-проверка: ребёнок принадлежит пользователю
     children = await get_user_children(user_id)
-    child_ids = [c["student_id"] for c in children]
-    if student_id not in child_ids:
+    child_map = {c["student_id"]: c for c in children}
+    if student_id not in child_map:
         logger.warning("Попытка IDOR: user %d запросил student %d", user_id, student_id)
         return
+
+    child = child_map[student_id]
+    person_id = child.get("person_id")
+
+    # Получаем данные пользователя для mes_role
+    user = await get_user(user_id)
+    mes_role = user.get("mesh_role", "parent") if user else "parent"
 
     # Получаем токен
     try:
@@ -282,7 +306,10 @@ async def _handle_schedule_request(
 
     # Получаем расписание
     try:
-        text, keyboard = await _get_schedule_text(student_id, period, token)
+        text, keyboard = await _get_schedule_text(
+            student_id, period, token,
+            person_id=person_id, mes_role=mes_role,
+        )
         await callback.message.edit_text(
             text, reply_markup=keyboard, parse_mode="HTML"
         )
@@ -336,7 +363,12 @@ async def cmd_raspisanie(message: Message):
         return
 
     # Один ребёнок — сразу показать расписание на сегодня
-    student_id = children[0]["student_id"]
+    child = children[0]
+    student_id = child["student_id"]
+    person_id = child.get("person_id")
+
+    # Получаем данные пользователя для mes_role
+    mes_role = user.get("mesh_role", "parent") if user else "parent"
 
     # Получаем токен
     try:
@@ -350,7 +382,10 @@ async def cmd_raspisanie(message: Message):
 
     # Получаем расписание
     try:
-        text, keyboard = await _get_schedule_text(student_id, "today", token)
+        text, keyboard = await _get_schedule_text(
+            student_id, "today", token,
+            person_id=person_id, mes_role=mes_role,
+        )
         await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
     except AuthenticationError:
         logger.error("Ошибка авторизации МЭШ для user_id=%d", user_id)

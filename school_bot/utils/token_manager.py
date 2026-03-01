@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from database.crud import get_user, update_user_token
-from mesh_api.client import MeshClient
+from mesh_api.auth import MeshAuth
 from mesh_api.exceptions import AuthenticationError, MeshAPIError
 
 logger = logging.getLogger(__name__)
@@ -48,8 +48,8 @@ async def ensure_token(user_id: int) -> str:
     """
     Получает действующий токен для пользователя.
 
-    Проверяет текущий токен, при необходимости обновляет через МЭШ API.
-    Использует asyncio.Lock per user_id для защиты от гонки при параллельных вызовах.
+    Использует refresh_token для обновления (без SMS).
+    Если refresh_token тоже истёк — бросает AuthenticationError.
 
     Args:
         user_id: Telegram user ID
@@ -58,8 +58,7 @@ async def ensure_token(user_id: int) -> str:
         Действующий токен МЭШ
 
     Raises:
-        AuthenticationError: Если пользователь не найден или аутентификация не удалась
-        MeshAPIError: Если произошла ошибка API или сети
+        AuthenticationError: Если пользователь не найден или сессия истекла
     """
     # Блокировка по user_id — только один вызов обновляет токен одновременно
     if user_id not in _token_locks:
@@ -80,30 +79,44 @@ async def ensure_token(user_id: int) -> str:
         if current_token and _is_token_valid(token_expires_at):
             return current_token
 
-        # Токен истёк или отсутствует — обновляем
+        # Токен истёк — обновляем через refresh_token
         logger.info("Обновление токена для пользователя user_id=%d", user_id)
 
-        login = user.get("mesh_login")
-        password = user.get("mesh_password")
+        refresh_token = user.get("mesh_refresh_token")
+        client_id = user.get("mesh_client_id")
+        client_secret = user.get("mesh_client_secret")
 
-        if not login or not password:
-            logger.error("Отсутствуют учётные данные: user_id=%d", user_id)
-            raise AuthenticationError("Учётные данные не найдены")
+        if not refresh_token or not client_id or not client_secret:
+            logger.error("Отсутствуют OAuth-данные: user_id=%d", user_id)
+            raise AuthenticationError(
+                "Сессия истекла. Пожалуйста, перерегистрируйтесь: /start"
+            )
 
-        # Аутентификация через МЭШ API с обязательным закрытием клиента
-        client = MeshClient()
         try:
-            auth_result = await client.authenticate(login, password)
-            new_token = auth_result["token"]
-            new_expires_at = auth_result["expires_at"]
-        except MeshAPIError:
-            logger.error("Ошибка обновления токена МЭШ: user_id=%d", user_id)
+            result = await MeshAuth.do_refresh_token(
+                refresh_token=refresh_token,
+                client_id=client_id,
+                client_secret=client_secret,
+            )
+            new_token = result["token"]
+            new_refresh = result.get("refresh_token")
+
+            # Токен МЭШ обычно живёт ~24 часа
+            new_expires_at = (datetime.now() + timedelta(hours=24)).isoformat()
+
+        except AuthenticationError:
+            # refresh_token тоже истёк — нужна повторная регистрация
             raise
-        finally:
-            await client.close()
+        except Exception as e:
+            logger.error("Ошибка обновления токена МЭШ: user_id=%d, error=%s", user_id, e)
+            raise AuthenticationError(
+                "Не удалось обновить сессию. Перерегистрируйтесь: /start"
+            )
 
         # Сохраняем новый токен в БД
-        await update_user_token(user_id, new_token, new_expires_at)
+        await update_user_token(
+            user_id, new_token, new_expires_at, mesh_refresh_token=new_refresh
+        )
 
         logger.info("Токен обновлён для пользователя user_id=%d", user_id)
 

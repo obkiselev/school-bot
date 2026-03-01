@@ -21,6 +21,9 @@ logging.basicConfig(
     ]
 )
 
+# Всегда показываем пошаговые логи авторизации для диагностики
+logging.getLogger("octodiary.auth").setLevel(logging.DEBUG)
+
 logger = logging.getLogger(__name__)
 
 
