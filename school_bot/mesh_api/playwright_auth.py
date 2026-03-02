@@ -21,6 +21,8 @@ _OAUTH_REGISTER_PATH = "/sps/oauth/register"       # шаг 1: client_id, client
 _OAUTH_TOKEN_PATH = "/sps/oauth/te"                # шаг 7: mos_access_token, refresh_token
 _MESH_AUTH_PATH = "/v3/auth/sudir/auth"            # шаг 8: mesh_access_token (school.mos.ru)
 _MESH_AUTH_URL = "https://school.mos.ru/v3/auth/sudir/auth"
+_OAUTH_CALLBACK_PATH = "/v3/auth/sudir/callback"  # OAuth callback: code → token exchange
+_TOKEN_REFRESH_PATH = "/v2/token/refresh"          # новый эндпоинт: mesh_token (201)
 
 # ─── Таймауты (мс для Playwright, сек для asyncio) ────────────────────────────
 _BROWSER_LAUNCH_TIMEOUT = 30_000    # запуск Chromium
@@ -67,6 +69,7 @@ class PlaywrightMeshAuth:
         self._mos_access_token: Optional[str] = None
         self._refresh_token: Optional[str] = None
         self._mesh_token: Optional[str] = None
+        self._web_token: Optional[str] = None  # токен из /v2/token/refresh (веб-сессионный)
 
         # Future: сигнал что /sps/oauth/te перехвачен (можно завершать auth)
         self._auth_complete: Optional[asyncio.Future] = None
@@ -229,8 +232,8 @@ class PlaywrightMeshAuth:
             token_ready = token_task.result() if token_task in done else None
 
             if token_ready and not sms_input:
-                # Вход прошёл без SMS — токен уже перехвачен
-                logger.info("Playwright: вход без SMS — токен получен")
+                # Вход прошёл без SMS — авторизация успешна (токен в cookies)
+                logger.info("Playwright: вход без SMS — авторизация пройдена, извлекаем токен")
                 result = await self._finalize_auth()
                 await self._close_browser()
                 return result
@@ -242,6 +245,31 @@ class PlaywrightMeshAuth:
                     result = await self._finalize_auth()
                     await self._close_browser()
                     return result
+
+                # Fallback: проверяем URL — может, браузер уже на school.mos.ru
+                current_url = self._page.url
+                logger.info("Playwright: URL после ожидания: %s", current_url)
+
+                if "school.mos.ru" in current_url and "login.mos.ru" not in current_url:
+                    logger.warning(
+                        "Playwright: браузер на school.mos.ru, но токен не перехвачен. "
+                        "Извлекаем токен из браузера..."
+                    )
+                    await self._screenshot("3_url_success_no_token")
+                    try:
+                        extracted = await self._extract_token_from_browser()
+                        if extracted:
+                            logger.info("Playwright: токен извлечён из браузера!")
+                            result = await self._finalize_auth()
+                            await self._close_browser()
+                            return result
+                    except (NetworkError, AuthenticationError):
+                        raise  # пробрасываем реальную ошибку (таймаут, профиль не найден)
+                    except Exception as e:
+                        logger.warning(
+                            "Playwright: не удалось извлечь токен: %s", e
+                        )
+
                 await self._screenshot("3_no_sms_field")
                 raise NetworkError(
                     "Шаг SMS не появился и токен не получен. "
@@ -306,6 +334,25 @@ class PlaywrightMeshAuth:
             try:
                 await asyncio.wait_for(self._auth_complete, timeout=_TOKEN_WAIT_TIMEOUT)
             except asyncio.TimeoutError:
+                # Fallback: проверяем URL — может, авторизация прошла
+                current_url = self._page.url
+                logger.info("Playwright: URL после SMS: %s", current_url)
+
+                if "school.mos.ru" in current_url and "login.mos.ru" not in current_url:
+                    logger.warning(
+                        "Playwright: post-SMS — браузер на school.mos.ru, "
+                        "извлекаем токен..."
+                    )
+                    try:
+                        extracted = await self._extract_token_from_browser()
+                        if extracted:
+                            logger.info("Playwright: post-SMS — токен извлечён!")
+                            return await self._finalize_auth()
+                    except Exception as e:
+                        logger.warning(
+                            "Playwright: post-SMS — извлечение: %s", e
+                        )
+
                 await self._screenshot("5_token_timeout")
                 raise NetworkError(
                     "Сервер МЭШ не вернул токен после ввода кода. "
@@ -341,6 +388,14 @@ class PlaywrightMeshAuth:
 
         api = AsyncMobileAPI(system=Systems.MES)
         try:
+            from config import settings
+            proxy_settings = settings.get_proxy_settings()
+            if proxy_settings:
+                api._socks_proxy = proxy_settings["curl_cffi"]
+        except Exception:
+            pass
+
+        try:
             new_token = await api.refresh_token(
                 token=refresh_token,
                 client_id=client_id,
@@ -364,8 +419,28 @@ class PlaywrightMeshAuth:
     async def _on_response(self, response) -> None:
         """Перехватывает ответы браузера и сохраняет токены."""
         url = response.url
+
+        # Логируем все auth-related ответы для диагностики
+        _AUTH_KEYWORDS = ("oauth", "token", "auth", "sudir", "sps")
+        url_lower = url.lower()
+        if any(kw in url_lower for kw in _AUTH_KEYWORDS):
+            logger.info(
+                "Playwright: [auth-response] %s %s",
+                response.status, url[:200],
+            )
+
         try:
-            if response.status != 200:
+            if response.status >= 400:
+                return
+
+            # 3xx — логируем редирект, но не парсим JSON
+            if response.status >= 300:
+                location = response.headers.get("location", "")
+                if location:
+                    logger.info(
+                        "Playwright: [redirect] %s → %s",
+                        url[:100], location[:200],
+                    )
                 return
 
             # Шаг 1: регистрация OAuth → client_id, client_secret
@@ -373,7 +448,7 @@ class PlaywrightMeshAuth:
                 body = await response.json()
                 self._client_id = body.get("client_id")
                 self._client_secret = body.get("client_secret")
-                logger.debug(
+                logger.info(
                     "Playwright: /register перехвачен, client_id=%s",
                     self._client_id,
                 )
@@ -383,7 +458,7 @@ class PlaywrightMeshAuth:
                 body = await response.json()
                 self._mos_access_token = body.get("access_token")
                 self._refresh_token = body.get("refresh_token")
-                logger.debug(
+                logger.info(
                     "Playwright: /te перехвачен, mos_token=%s...",
                     (self._mos_access_token or "")[:20],
                 )
@@ -401,13 +476,78 @@ class PlaywrightMeshAuth:
                     or body.get("token")
                 )
                 if self._mesh_token:
-                    logger.debug(
+                    logger.info(
                         "Playwright: /sudir/auth перехвачен, mesh_token=%s...",
                         self._mesh_token[:20],
                     )
 
+            # OAuth callback — сигнализируем что авторизация прошла
+            # (token exchange происходит server-side, браузер не видит /sps/oauth/te)
+            elif _OAUTH_CALLBACK_PATH in url:
+                logger.info("Playwright: OAuth callback перехвачен: %s", url[:200])
+                # Даём браузеру секунду на установку cookies, потом сигналим
+                if self._auth_complete and not self._auth_complete.done():
+                    self._auth_complete.set_result(True)
+                    logger.info("Playwright: _auth_complete установлен (callback 200)")
+
+            # Новый эндпоинт: /v2/token/refresh (201) — mesh_token
+            elif _TOKEN_REFRESH_PATH in url:
+                # Тело может быть пустым, plain-text токеном или JSON
+                raw_text = await response.text()
+                logger.info(
+                    "Playwright: /v2/token/refresh перехвачен (status=%d, body_len=%d)",
+                    response.status, len(raw_text),
+                )
+                token = None
+                if raw_text.strip():
+                    if raw_text.strip().startswith("{"):
+                        # JSON-ответ
+                        import json
+                        try:
+                            body = json.loads(raw_text)
+                            logger.info(
+                                "Playwright: /v2/token/refresh JSON keys=%s",
+                                list(body.keys()),
+                            )
+                            token = (
+                                body.get("mesh_access_token")
+                                or body.get("access_token")
+                                or body.get("token")
+                            )
+                        except (json.JSONDecodeError, ValueError) as je:
+                            logger.warning(
+                                "Playwright: /v2/token/refresh JSON parse: %s", je,
+                            )
+                    else:
+                        # Plain-text ответ — может быть сам токен
+                        candidate = raw_text.strip().strip('"')
+                        if len(candidate) > 20:
+                            token = candidate
+                            logger.info(
+                                "Playwright: /v2/token/refresh plain-text token: %s...",
+                                token[:20],
+                            )
+                if token:
+                    # /v2/token/refresh даёт веб-сессионный токен — он может НЕ работать
+                    # для мобильного API (get_events). Сохраняем отдельно.
+                    self._web_token = token
+                    logger.info(
+                        "Playwright: web_token из /v2/token/refresh: %s...",
+                        self._web_token[:20],
+                    )
+                    if self._auth_complete and not self._auth_complete.done():
+                        self._auth_complete.set_result(True)
+
         except Exception as e:
-            logger.debug("Playwright: _on_response %s: %s", url, e)
+            is_critical = _OAUTH_REGISTER_PATH in url or _OAUTH_TOKEN_PATH in url
+            if is_critical:
+                logger.error(
+                    "Playwright: _on_response КРИТИЧЕСКАЯ ОШИБКА %s: %s "
+                    "[OAuth-данные могут быть потеряны!]",
+                    url[:200], e, exc_info=True,
+                )
+            else:
+                logger.warning("Playwright: _on_response ошибка %s: %s", url[:200], e)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Финализация авторизации
@@ -417,20 +557,53 @@ class PlaywrightMeshAuth:
         """Получает mesh_token (если нет — через httpx), затем профиль через OctoDiary."""
         # Если mesh_token не перехвачен браузером — запрашиваем сами
         if not self._mesh_token:
-            if not self._mos_access_token:
-                raise NetworkError(
-                    "Не удалось получить токен МЭШ. "
-                    "Попробуйте перерегистрироваться: /start"
-                )
-            logger.debug("Playwright: mesh_token не перехвачен, запрашиваем через aiohttp")
-            self._mesh_token = await self._fetch_mesh_token(self._mos_access_token)
+            if self._mos_access_token:
+                logger.debug("Playwright: mesh_token не перехвачен, запрашиваем через aiohttp")
+                self._mesh_token = await self._fetch_mesh_token(self._mos_access_token)
 
-        # Профиль и дети через OctoDiary
+        # Если mesh_token всё ещё нет — извлекаем из cookies/localStorage браузера
+        # Cookie aupd_token устанавливается school.mos.ru при OAuth callback
+        # и является рабочим mesh_access_token для API
+        if not self._mesh_token and self._page and self._context:
+            logger.info(
+                "Playwright: mesh_token нет — ждём 2с и извлекаем из cookies браузера..."
+            )
+            # Даём школьному порталу время установить cookies после OAuth callback
+            await asyncio.sleep(2)
+            try:
+                await self._extract_token_from_browser()
+            except Exception as e:
+                logger.warning("Playwright: _extract_token_from_browser failed: %s", e)
+
+        # Последний fallback: используем web_token (может не работать для get_events)
+        if not self._mesh_token and self._web_token:
+            logger.warning(
+                "Playwright: используем web_token как fallback "
+                "(может не работать для eventcalendar API)"
+            )
+            self._mesh_token = self._web_token
+
+        if not self._mesh_token:
+            raise NetworkError(
+                "Не удалось получить токен МЭШ. "
+                "Попробуйте перерегистрироваться: /start"
+            )
+
+        # Профиль и дети через OctoDiary (с прокси для dnevnik.mos.ru)
         from octodiary.apis.async_ import AsyncMobileAPI
         from octodiary.urls import Systems
 
         api = AsyncMobileAPI(system=Systems.MES)
         api.token = self._mesh_token
+
+        # SOCKS5 прокси для API-вызовов (dnevnik.mos.ru не доступен напрямую)
+        try:
+            from config import settings
+            proxy_settings = settings.get_proxy_settings()
+            if proxy_settings:
+                api._socks_proxy = proxy_settings["curl_cffi"]
+        except Exception:
+            pass
 
         try:
             profiles = await api.get_users_profile_info()
@@ -449,6 +622,20 @@ class PlaywrightMeshAuth:
         except Exception as e:
             logger.error("Playwright: get_family_profile: %s", e)
             raise NetworkError(f"Ошибка получения семейного профиля: {e}")
+
+        if not self._refresh_token or not self._client_id or not self._client_secret:
+            missing = []
+            if not self._refresh_token:
+                missing.append("refresh_token")
+            if not self._client_id:
+                missing.append("client_id")
+            if not self._client_secret:
+                missing.append("client_secret")
+            logger.warning(
+                "Playwright: _finalize_auth возвращает НЕПОЛНЫЕ OAuth-данные! "
+                "Отсутствуют: [%s]. Обновление токена будет невозможно.",
+                ", ".join(missing),
+            )
 
         return {
             "status": "ok",
@@ -510,8 +697,190 @@ class PlaywrightMeshAuth:
         except NetworkError:
             raise
         except Exception as e:
-            logger.error("Playwright: _fetch_mesh_token: %s", e)
-            raise NetworkError(f"Ошибка обмена токена МЭШ: {e}")
+            logger.error("Playwright: _fetch_mesh_token: %s: %s", type(e).__name__, e)
+            raise NetworkError(f"Ошибка обмена токена МЭШ: {type(e).__name__}: {e}")
+
+    async def _extract_token_from_browser(self) -> bool:
+        """Извлекает токены из браузера когда _on_response не перехватил их.
+
+        Вызывается как fallback когда браузер уже на school.mos.ru
+        (авторизация прошла), но токены не были перехвачены.
+
+        Returns:
+            True если хотя бы один токен найден.
+        """
+        found = False
+
+        # --- A: Cookies ---
+        try:
+            cookies = await self._context.cookies()
+            auth_cookies = [
+                c for c in cookies
+                if any(kw in c["name"].lower()
+                       for kw in ("token", "auth", "session", "aupd", "guid"))
+            ]
+            logger.info(
+                "Playwright: [extract] cookies (%d шт), auth-related: %s",
+                len(cookies),
+                [c["name"] for c in auth_cookies],
+            )
+            for cookie in cookies:
+                name_lower = cookie["name"].lower()
+                value = cookie.get("value", "")
+                if not value or len(value) < 10:
+                    continue
+                if "access_token" in name_lower:
+                    if not self._mos_access_token:
+                        self._mos_access_token = value
+                        logger.info(
+                            "Playwright: [extract] mos_access_token из cookie '%s'",
+                            cookie["name"],
+                        )
+                        found = True
+                if "mesh" in name_lower and "token" in name_lower:
+                    if not self._mesh_token:
+                        self._mesh_token = value
+                        logger.info(
+                            "Playwright: [extract] mesh_token из cookie '%s'",
+                            cookie["name"],
+                        )
+                        found = True
+                # aupd_token — school.mos.ru использует для API-авторизации
+                # Предпочитаем aupd_token из cookies над web_token из /v2/token/refresh
+                if name_lower == "aupd_token":
+                    if not self._mesh_token or self._mesh_token == self._web_token:
+                        self._mesh_token = value
+                        logger.info(
+                            "Playwright: [extract] mesh_token из cookie 'aupd_token'",
+                        )
+                        found = True
+        except Exception as e:
+            logger.warning("Playwright: [extract] ошибка cookies: %s", e)
+
+        # --- B: localStorage ---
+        try:
+            ls_tokens = await self._page.evaluate("""() => {
+                const r = {};
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (/token|auth|mesh|access/i.test(k))
+                        r[k] = localStorage.getItem(k);
+                }
+                return r;
+            }""")
+            if ls_tokens:
+                logger.info(
+                    "Playwright: [extract] localStorage keys: %s",
+                    list(ls_tokens.keys()),
+                )
+                for key, value in ls_tokens.items():
+                    if not value or len(value) < 10:
+                        continue
+                    kl = key.lower()
+                    # school.mos.ru хранит mesh_token как "saved_token"
+                    if key == "saved_token" and not self._mesh_token:
+                        self._mesh_token = value
+                        logger.info("Playwright: [extract] mesh_token из localStorage['saved_token']")
+                        found = True
+                    elif "mesh" in kl and "token" in kl and not self._mesh_token:
+                        self._mesh_token = value
+                        logger.info("Playwright: [extract] mesh_token из localStorage['%s']", key)
+                        found = True
+                    elif "access_token" in kl and not self._mos_access_token:
+                        self._mos_access_token = value
+                        logger.info("Playwright: [extract] mos_token из localStorage")
+                        found = True
+        except Exception as e:
+            logger.warning("Playwright: [extract] ошибка localStorage: %s", e)
+
+        # --- C: sessionStorage ---
+        try:
+            ss_tokens = await self._page.evaluate("""() => {
+                const r = {};
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const k = sessionStorage.key(i);
+                    if (/token|auth|mesh|access/i.test(k))
+                        r[k] = sessionStorage.getItem(k);
+                }
+                return r;
+            }""")
+            if ss_tokens:
+                logger.info(
+                    "Playwright: [extract] sessionStorage keys: %s",
+                    list(ss_tokens.keys()),
+                )
+                for key, value in ss_tokens.items():
+                    if not value or len(value) < 10:
+                        continue
+                    kl = key.lower()
+                    if "mesh" in kl and "token" in kl and not self._mesh_token:
+                        self._mesh_token = value
+                        logger.info("Playwright: [extract] mesh_token из sessionStorage")
+                        found = True
+                    elif "access_token" in kl and not self._mos_access_token:
+                        self._mos_access_token = value
+                        logger.info("Playwright: [extract] mos_token из sessionStorage")
+                        found = True
+        except Exception as e:
+            logger.warning("Playwright: [extract] ошибка sessionStorage: %s", e)
+
+        # --- D: Если есть mos_token — получаем mesh_token через API ---
+        if not self._mesh_token and self._mos_access_token:
+            logger.info("Playwright: [extract] есть mos_token, запрашиваем mesh_token...")
+            try:
+                self._mesh_token = await self._fetch_mesh_token(self._mos_access_token)
+                found = True
+                logger.info("Playwright: [extract] mesh_token получен через API!")
+            except Exception as e:
+                logger.warning("Playwright: [extract] _fetch_mesh_token: %s", e)
+
+        # --- E: Fetch из браузера (последний шанс) ---
+        if not self._mesh_token:
+            logger.info("Playwright: [extract] fetch из контекста браузера...")
+            try:
+                data = await self._page.evaluate("""async () => {
+                    try {
+                        const r = await fetch('/v3/auth/sudir/auth', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json',
+                                      'Accept': 'application/json'},
+                            body: '{}',
+                            credentials: 'include',
+                        });
+                        if (!r.ok) return {error: 'HTTP ' + r.status};
+                        return await r.json();
+                    } catch(e) { return {error: e.message}; }
+                }""")
+                if data and "error" not in data:
+                    logger.info(
+                        "Playwright: [extract] browser fetch keys: %s",
+                        list(data.keys()),
+                    )
+                    inner = data.get("user_authentication_for_mobile_response", {})
+                    token = (
+                        inner.get("mesh_access_token")
+                        or data.get("mesh_access_token")
+                        or data.get("token")
+                        or data.get("access_token")
+                    )
+                    if token:
+                        self._mesh_token = token
+                        found = True
+                        logger.info("Playwright: [extract] mesh_token из browser fetch!")
+                else:
+                    logger.warning(
+                        "Playwright: [extract] browser fetch: %s",
+                        data.get("error", "?") if data else "null",
+                    )
+            except Exception as e:
+                logger.warning("Playwright: [extract] browser fetch: %s", e)
+
+        logger.info(
+            "Playwright: [extract] итог: mos=%s mesh=%s",
+            "YES" if self._mos_access_token else "NO",
+            "YES" if self._mesh_token else "NO",
+        )
+        return found
 
     # ─────────────────────────────────────────────────────────────────────────
     # Вспомогательные методы (UI)

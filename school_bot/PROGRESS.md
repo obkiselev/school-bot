@@ -1,6 +1,6 @@
 # School Bot — Прогресс разработки
 
-## Текущая версия: 0.2.2
+## Текущая версия: 0.2.3
 
 ## Статус: Фаза 2 в работе — авторизация через mos.ru (OctoDiary)
 
@@ -52,7 +52,7 @@
 
 ## Фаза 4: Production — В ПЛАНАХ
 
-- [ ] Логирование (RotatingFileHandler)
+- [x] Логирование (RotatingFileHandler) — реализовано в v0.2.3
 - [ ] Rate limiting
 - [ ] /help и /profile
 - [ ] Деплой на VPS
@@ -69,6 +69,13 @@
 ---
 
 ## Changelog
+
+### v0.2.3 — Исправление авторизации без SMS + файловое логирование
+- **OAuth callback fix**: при входе без SMS (прямой редирект на school.mos.ru), `_auth_complete` теперь сигнализируется сразу при получении OAuth callback — убрано зависание на 30 секунд
+- **mes_role fix**: маппинг `ParentProfile` → `parent` в заголовке `x-mes-role` для API get_events (расписание не загружалось)
+- **Файловое логирование**: RotatingFileHandler → `data/logs/bot.log` (5MB, 3 бэкапа, UTF-8) — ранее логи шли только в stdout
+- **Задержка перед cookie extraction**: 2с ожидание после OAuth callback перед извлечением токена из cookies браузера
+- **Улучшенное логирование ошибок API**: детальный вывод raw error в client.py при ошибках get_schedule
 
 ### v0.2.2 — Human-like авторизация: защита от обнаружения автоматизации
 - **Проблема**: mos.ru обнаружил автоматизированный вход и сбросил пароль аккаунта

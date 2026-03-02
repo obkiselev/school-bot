@@ -17,6 +17,17 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+# Маппинг типа профиля МЭШ → роль для API заголовка x-mes-role
+_PROFILE_TYPE_TO_ROLE = {
+    "ParentProfile": "parent",
+    "StudentProfile": "student",
+}
+
+
+def _normalize_mes_role(raw_role: str) -> str:
+    """Конвертирует тип профиля ('ParentProfile') в роль API ('parent')."""
+    return _PROFILE_TYPE_TO_ROLE.get(raw_role, raw_role)
+
 
 class MeshClient:
     """Async client for МЭШ API via OctoDiary."""
@@ -31,6 +42,15 @@ class MeshClient:
         if token:
             self.api.token = token
         self.profile_id = profile_id
+
+        # SOCKS5 прокси для API-вызовов (dnevnik.mos.ru может быть недоступен напрямую)
+        try:
+            from config import settings
+            proxy_settings = settings.get_proxy_settings()
+            if proxy_settings:
+                self.api._socks_proxy = proxy_settings["curl_cffi"]
+        except Exception:
+            pass
 
     async def get_schedule(
         self,
@@ -54,6 +74,7 @@ class MeshClient:
             Список уроков, отсортированный по времени
         """
         self.api.token = token
+        normalized_role = _normalize_mes_role(mes_role)
 
         if not person_id:
             logger.warning("person_id не указан для student_id=%d, расписание может быть неполным", student_id)
@@ -61,17 +82,21 @@ class MeshClient:
 
         try:
             target_date = date.fromisoformat(date_str)
+            logger.info(
+                "get_schedule: student_id=%d, date=%s, person_id=%s, mes_role=%s→%s",
+                student_id, date_str, person_id, mes_role, normalized_role,
+            )
             events_resp = await self.api.get_events(
                 person_id=person_id,
-                mes_role=mes_role,
+                mes_role=normalized_role,
                 begin_date=target_date,
                 end_date=target_date,
             )
         except Exception as e:
             error_msg = str(e).lower()
+            logger.error("Ошибка получения расписания (raw): %s [type=%s]", e, type(e).__name__)
             if "401" in error_msg or "unauthorized" in error_msg:
                 raise AuthenticationError("Токен истек или недействителен")
-            logger.error("Ошибка получения расписания: %s", e)
             raise NetworkError(f"Ошибка получения расписания: {e}")
 
         if not events_resp or not events_resp.response:
