@@ -84,7 +84,7 @@ school_bot/
 ├── config.py           # Настройки (pydantic-settings)
 ├── core/               # database.py, encryption.py
 ├── mesh_api/           # auth.py, client.py, endpoints.py, models.py, exceptions.py, proxy_patch.py
-├── handlers/           # start.py, registration.py, schedule.py, admin.py, quiz.py, language.py, topic.py, quiz_settings.py, history.py
+├── handlers/           # start.py, registration.py, schedule.py, ocenki.py, dz.py, admin.py, quiz.py, language.py, topic.py, quiz_settings.py, history.py
 ├── keyboards/          # main_menu.py (меню по ролям), quiz_kb.py (клавиатуры квизов)
 ├── middlewares/         # access.py (Access Control Middleware)
 ├── llm/                # client.py, prompts.py, parser.py (LM Studio интеграция)
@@ -101,7 +101,9 @@ school_bot/
 - Единая кнопка «🏠 Главное меню» — функция `home_button()` в `keyboards/main_menu.py`
 - Все клавиатуры используют `home_button()` для кнопки возврата (не хардкод)
 - Callback `go_home` обрабатывается в `handlers/start.py` — очищает FSM, показывает меню по роли
-- Нереализованные пункты меню (Оценки, ДЗ) — заглушка `cb_not_implemented` в `handlers/start.py`
+- Оценки (`/ocenki`) — handler в `handlers/ocenki.py`, callback namespace `ocenki:`
+- Домашние задания (`/dz`) — handler в `handlers/dz.py`, callback namespace `dz:`
+- Оба handler-а используют `profile_id` из `users.mesh_profile_id` (не `person_id` как расписание)
 
 ## Важные детали
 

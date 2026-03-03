@@ -281,18 +281,6 @@ async def cmd_start(message: Message, state: FSMContext):
         await message.answer("❗ Роль не определена. Обратитесь к администратору.")
 
 
-@router.callback_query(F.data.in_({"menu:ocenki", "menu:dz"}))
-async def cb_not_implemented(callback: CallbackQuery):
-    """Заглушка для ещё не реализованных пунктов меню."""
-    labels = {"menu:ocenki": "Оценки", "menu:dz": "Домашние задания"}
-    feature = labels.get(callback.data, "Функция")
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[home_button()]])
-    await callback.message.edit_text(
-        f"🚧 «{feature}» — в разработке.\n\nЭта функция скоро появится!",
-        reply_markup=keyboard,
-    )
-    await callback.answer()
-
 
 @router.callback_query(F.data == "go_home")
 async def go_home(callback: CallbackQuery, state: FSMContext):

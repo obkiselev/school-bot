@@ -18,7 +18,7 @@ from core import database
 import mesh_api.proxy_patch  # noqa: F401 — патч OctoDiary для SOCKS5 прокси
 
 # Import handlers
-from handlers import start, registration, schedule
+from handlers import start, registration, schedule, ocenki, dz
 from handlers import quiz, language, topic, quiz_settings, history, admin
 from middlewares.access import AccessControlMiddleware
 
@@ -318,6 +318,8 @@ async def main():
     dp.include_router(start.router)
     dp.include_router(registration.router)
     dp.include_router(schedule.router)
+    dp.include_router(ocenki.router)
+    dp.include_router(dz.router)
     dp.include_router(admin.router)
     dp.include_router(language.router)
     dp.include_router(topic.router)
