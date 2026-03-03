@@ -71,7 +71,8 @@ def get_encryptor() -> CredentialEncryption:
     """Get global encryption instance."""
     global _encryptor
     if _encryptor is None:
-        _encryptor = CredentialEncryption()
+        from config import settings
+        _encryptor = CredentialEncryption(key=settings.ENCRYPTION_KEY)
     return _encryptor
 
 

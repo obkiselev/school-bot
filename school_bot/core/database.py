@@ -22,6 +22,8 @@ class Database:
             self._conn = await aiosqlite.connect(self.db_path)
             # Enable foreign keys
             await self._conn.execute("PRAGMA foreign_keys = ON")
+            # Row factory для доступа к колонкам по имени (поддерживает и row[0], и row["name"])
+            self._conn.row_factory = aiosqlite.Row
             await self._conn.commit()
 
         return self._conn
@@ -98,12 +100,56 @@ async def _run_migrations(conn: aiosqlite.Connection):
                 sql = f.read()
             for statement in sql.split(";"):
                 statement = statement.strip()
-                if statement and not statement.startswith("--"):
+                if statement:
                     try:
                         await conn.execute(statement)
                     except Exception:
                         pass  # Колонка уже может существовать
             await conn.commit()
+
+    # Миграция 003: тестирование по языкам + контроль доступа
+    if "role" not in user_columns:
+        migration_file = migrations_dir / "003_add_quiz_and_access.sql"
+        if migration_file.exists():
+            with open(migration_file, "r", encoding="utf-8") as f:
+                sql = f.read()
+            for statement in sql.split(";"):
+                statement = statement.strip()
+                if statement:
+                    try:
+                        await conn.execute(statement)
+                    except Exception:
+                        pass  # Таблица/колонка уже может существовать
+            await conn.commit()
+
+    # Авто-создание главного админа (ADMIN_ID из .env)
+    await _ensure_admin(conn)
+
+
+async def _ensure_admin(conn: aiosqlite.Connection):
+    """Создаёт/обновляет главного админа из ADMIN_ID."""
+    try:
+        from config import settings
+        admin_id = settings.ADMIN_ID
+        if not admin_id:
+            return
+        # Проверяем, есть ли уже такой пользователь
+        cursor = await conn.execute("SELECT 1 FROM users WHERE user_id = ?", (admin_id,))
+        exists = await cursor.fetchone()
+        if exists:
+            await conn.execute(
+                "UPDATE users SET role = 'admin', is_blocked = 0 WHERE user_id = ?",
+                (admin_id,),
+            )
+        else:
+            await conn.execute(
+                "INSERT INTO users (user_id, role, is_blocked, mesh_login, mesh_password) VALUES (?, 'admin', 0, '', '')",
+                (admin_id,),
+            )
+        await conn.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("_ensure_admin не удалось: %s", e)
 
 
 # Global database instance (will be initialized in bot.py)

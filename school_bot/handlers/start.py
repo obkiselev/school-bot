@@ -6,11 +6,13 @@ import logging
 import aiohttp
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
-from database.crud import user_exists
+from config import settings
+from database.crud import user_exists, delete_user, get_user_role, get_user, ensure_quiz_user, set_user_access
 from states.registration import RegistrationStates
+from keyboards.main_menu import parent_menu_keyboard, student_menu_keyboard, admin_menu_keyboard
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -211,37 +213,105 @@ async def cmd_test_auth(message: Message):
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
-    """
-    Handle /start command.
-
-    If user is registered, show main menu.
-    If not, start registration flow.
-    """
+    """Handle /start — role-based menu."""
+    await state.clear()
     user_id = message.from_user.id
 
-    # Check if user already registered
-    if await user_exists(user_id):
+    # Проверяем, есть ли пользователь в БД
+    if not await user_exists(user_id):
+        # Автовосстановление главного админа (мог удалиться при перерегистрации)
+        if settings.ADMIN_ID and user_id == settings.ADMIN_ID:
+            await set_user_access(user_id, "admin")
+            logger.info("Автовосстановление админа user_id=%d", user_id)
+        else:
+            await message.answer(
+                "❗ Доступ ограничен.\n\n"
+                "Для получения доступа обратитесь к администратору."
+            )
+            return
+
+    role = await get_user_role(user_id)
+
+    if role == "admin":
+        # Админ — проверяем, есть ли МЭШ-данные (если да — полное меню)
+        user = await get_user(user_id)
+        has_mesh = user and user.get("mesh_token")
         await message.answer(
-            "👋 С возвращением!\n\n"
+            "👋 С возвращением, администратор!\n\n"
             "Доступные команды:\n"
-            "/raspisanie - Расписание уроков\n"
-            "/ocenki - Оценки\n"
-            "/dz - Домашние задания\n"
-            "/profile - Мой профиль\n"
-            "/settings - Настройки уведомлений\n"
-            "/help - Справка"
-        )
-    else:
-        # Start registration
-        await message.answer(
-            "👋 Добро пожаловать в Школьный помощник!\n\n"
-            "Этот бот поможет вам получать информацию о школьной жизни ваших детей:\n"
-            "• Расписание уроков\n"
-            "• Оценки\n"
-            "• Домашние задания\n\n"
-            "Для начала работы необходимо войти в систему МЭШ.\n\n"
-            "Введите ваш логин от dnevnik.mos.ru:"
+            "/raspisanie — Расписание уроков\n"
+            "/test — Пройти тест по языку\n"
+            "/allow — Добавить пользователя\n"
+            "/block — Заблокировать пользователя\n"
+            "/users — Список пользователей\n"
+            "/help — Справка",
+            reply_markup=admin_menu_keyboard(),
         )
 
-        # Set FSM state to wait for login
-        await state.set_state(RegistrationStates.waiting_for_mesh_login)
+    elif role == "parent":
+        # Родитель — проверяем, прошёл ли МЭШ-регистрацию
+        user = await get_user(user_id)
+        has_mesh = user and user.get("mesh_login")
+        if has_mesh:
+            await message.answer(
+                "👋 С возвращением!\n\n"
+                "Выберите действие:",
+                reply_markup=parent_menu_keyboard(),
+            )
+        else:
+            # Ещё не прошёл МЭШ-регистрацию
+            await message.answer(
+                "👋 Добро пожаловать!\n\n"
+                "Для доступа к расписанию, оценкам и ДЗ\n"
+                "необходимо войти в систему МЭШ.\n\n"
+                "Введите ваш логин от dnevnik.mos.ru:"
+            )
+            await state.set_state(RegistrationStates.waiting_for_mesh_login)
+
+    elif role == "student":
+        # Ученик — обновить данные и показать меню тестирования
+        await ensure_quiz_user(user_id, message.from_user.username, message.from_user.first_name)
+        await message.answer(
+            "👋 Привет! Я Школьный помощник.\n\n"
+            "Выбери, что хочешь сделать:",
+            reply_markup=student_menu_keyboard(),
+        )
+
+    else:
+        await message.answer("❗ Роль не определена. Обратитесь к администратору.")
+
+
+@router.callback_query(F.data == "go_home")
+async def go_home(callback: CallbackQuery, state: FSMContext):
+    """Return to main menu based on role."""
+    await state.clear()
+    user_id = callback.from_user.id
+    role = await get_user_role(user_id)
+
+    if role == "admin":
+        await callback.message.edit_text("Главное меню:", reply_markup=admin_menu_keyboard())
+    elif role == "parent":
+        await callback.message.edit_text("Главное меню:", reply_markup=parent_menu_keyboard())
+    elif role == "student":
+        await callback.message.edit_text(
+            "👋 Выбери, что хочешь сделать:",
+            reply_markup=student_menu_keyboard(),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "reregister")
+async def cb_reregister(callback: CallbackQuery, state: FSMContext):
+    """Перерегистрация: удалить старые данные и начать заново."""
+    user_id = callback.from_user.id
+
+    await delete_user(user_id)
+    await state.clear()
+    logger.info("Перерегистрация: пользователь удалён, user_id=%d", user_id)
+
+    await callback.message.edit_text(
+        "Старые данные удалены.\n\n"
+        "Введите ваш логин от dnevnik.mos.ru:"
+    )
+    await state.set_state(RegistrationStates.waiting_for_mesh_login)
+    await callback.answer()

@@ -1,4 +1,7 @@
 """Configuration settings using pydantic-settings."""
+from typing import Optional
+from urllib.parse import urlparse
+
 from pydantic_settings import BaseSettings
 from pydantic import Field
 
@@ -44,6 +47,111 @@ class Settings(BaseSettings):
     MESH_AUTH_STEALTH: bool = Field(
         default=True,
         description="Apply anti-detection scripts to browser"
+    )
+
+    # Proxy for МЭШ authentication (optional)
+    MESH_PROXY_URL: Optional[str] = Field(
+        default=None,
+        description="Proxy URL for МЭШ auth (http://host:port, socks5://host:port, http://user:pass@host:port)"
+    )
+
+    # SSH tunnel (auto-start SOCKS5 proxy via SSH)
+    MESH_SSH_PROXY: bool = Field(
+        default=False,
+        description="Auto-start SSH SOCKS5 tunnel on bot startup"
+    )
+    MESH_SSH_HOST: Optional[str] = Field(
+        default=None,
+        description="SSH server address"
+    )
+    MESH_SSH_PORT: int = Field(
+        default=22,
+        description="SSH server port"
+    )
+    MESH_SSH_USER: Optional[str] = Field(
+        default=None,
+        description="SSH username"
+    )
+    MESH_SSH_KEY: Optional[str] = Field(
+        default=None,
+        description="Path to SSH private key"
+    )
+    MESH_SSH_PATH: Optional[str] = Field(
+        default=None,
+        description="Path to SSH executable (if system ssh hangs, use Git's ssh)"
+    )
+
+    def get_proxy_settings(self) -> Optional[dict]:
+        """Parse MESH_PROXY_URL into formats for Playwright and curl_cffi.
+
+        Returns None if no proxy configured, otherwise:
+        {
+            "url": "socks5://user:pass@host:port",
+            "playwright": {"server": "socks5://host:port", "username": ..., "password": ...},
+            "curl_cffi": "socks5://user:pass@host:port",
+        }
+        """
+        if not self.MESH_PROXY_URL:
+            return None
+
+        parsed = urlparse(self.MESH_PROXY_URL)
+        scheme = parsed.scheme or "http"
+        host = parsed.hostname or ""
+        port = parsed.port
+
+        server = f"{scheme}://{host}"
+        if port:
+            server += f":{port}"
+
+        pw_proxy = {"server": server}
+        if parsed.username:
+            pw_proxy["username"] = parsed.username
+        if parsed.password:
+            pw_proxy["password"] = parsed.password
+
+        return {
+            "url": self.MESH_PROXY_URL,
+            "playwright": pw_proxy,
+            "curl_cffi": self.MESH_PROXY_URL,
+        }
+
+    # LLM (тестирование по языкам — LM Studio)
+    LLM_BASE_URL: str = Field(
+        default="http://localhost:1234/v1",
+        description="LM Studio API base URL"
+    )
+    LLM_MODEL: str = Field(
+        default="qwen2.5-7b-instruct",
+        description="LLM model name"
+    )
+
+    # Quiz settings (темы и уровни для тестирования по языкам)
+    TOPICS: dict = Field(default={
+        "English": [
+            "Present Simple and Present Continuous",
+            "Past Simple",
+            "Vocabulary: School and Daily Life",
+            "Vocabulary: Family, Hobbies, and Travel",
+            "Reading Comprehension: Short Texts",
+        ],
+        "Spanish": [
+            "Basic Vocabulary: Colors, Numbers, Days of the Week",
+            "Family and School Vocabulary",
+            "Present Tense: Regular Verbs (-ar, -er, -ir)",
+            "Greetings and Basic Phrases",
+            "Food and Animals Vocabulary",
+        ],
+    })
+    LEVEL_DESCRIPTIONS: dict = Field(default={
+        "English": "5th grader studying English for the 5th year (intermediate level, knows basic tenses and vocabulary)",
+        "Spanish": "5th grader studying Spanish for the 1st year (complete beginner, basic vocabulary and simple present tense only)",
+    })
+    QUESTION_COUNTS: list = Field(default=[5, 10, 15, 20])
+
+    # Access Control
+    ADMIN_ID: Optional[int] = Field(
+        default=None,
+        description="Primary admin Telegram ID"
     )
 
     # Rate Limiting

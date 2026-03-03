@@ -111,9 +111,11 @@ async def update_user_token(
     mesh_token: str,
     token_expires_at: str,
     mesh_refresh_token: Optional[str] = None,
+    mesh_client_id: Optional[str] = None,
+    mesh_client_secret: Optional[str] = None,
 ) -> bool:
     """
-    Update user's МЭШ session token (and optionally refresh_token).
+    Update user's МЭШ session token (and optionally OAuth data).
 
     Returns:
         True if updated successfully
@@ -122,22 +124,38 @@ async def update_user_token(
 
     encrypted_token = encrypt(mesh_token)
 
+    # Собираем поля для обновления
+    fields = ["mesh_token = ?", "token_expires_at = ?", "last_sync = CURRENT_TIMESTAMP"]
+    params = [encrypted_token, token_expires_at]
+
     if mesh_refresh_token:
-        encrypted_refresh = encrypt(mesh_refresh_token)
-        query = """
-            UPDATE users
-            SET mesh_token = ?, token_expires_at = ?,
-                mesh_refresh_token = ?, last_sync = CURRENT_TIMESTAMP
-            WHERE user_id = ?
-        """
-        await db.execute(query, (encrypted_token, token_expires_at, encrypted_refresh, user_id))
-    else:
-        query = """
-            UPDATE users
-            SET mesh_token = ?, token_expires_at = ?, last_sync = CURRENT_TIMESTAMP
-            WHERE user_id = ?
-        """
-        await db.execute(query, (encrypted_token, token_expires_at, user_id))
+        fields.append("mesh_refresh_token = ?")
+        params.append(encrypt(mesh_refresh_token))
+    if mesh_client_id:
+        fields.append("mesh_client_id = ?")
+        params.append(encrypt(mesh_client_id))
+    if mesh_client_secret:
+        fields.append("mesh_client_secret = ?")
+        params.append(encrypt(mesh_client_secret))
+
+    params.append(user_id)
+    query = f"UPDATE users SET {', '.join(fields)} WHERE user_id = ?"
+    await db.execute(query, tuple(params))
+
+    return True
+
+
+async def invalidate_token(user_id: int) -> bool:
+    """
+    Сбрасывает token_expires_at в прошлое, чтобы ensure_token() обновил токен.
+
+    Returns:
+        True if updated successfully
+    """
+    db = get_db()
+
+    query = "UPDATE users SET token_expires_at = '2000-01-01T00:00:00' WHERE user_id = ?"
+    await db.execute(query, (user_id,))
 
     return True
 
@@ -150,6 +168,13 @@ async def user_exists(user_id: int) -> bool:
     result = await db.fetchone(query, (user_id,))
 
     return result is not None
+
+
+async def delete_user(user_id: int) -> bool:
+    """Delete user and all related data (children, notifications cascade)."""
+    db = get_db()
+    await db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+    return True
 
 
 # ============================================================================
@@ -370,3 +395,236 @@ async def log_activity(user_id: Optional[int], action: str, details: Optional[st
     """
 
     await db.execute(query, (user_id, action, details))
+
+
+# ============================================================================
+# ACCESS CONTROL (роли и доступ)
+# ============================================================================
+
+async def is_user_allowed(user_id: int) -> tuple:
+    """Check if user is in whitelist and not blocked.
+
+    Returns:
+        (is_allowed: bool, role: str | None)
+    """
+    db = get_db()
+    row = await db.fetchone(
+        "SELECT role, is_blocked FROM users WHERE user_id = ?",
+        (user_id,),
+    )
+    if row is None:
+        return (False, None)
+    if row[1]:  # is_blocked
+        return (False, row[0])
+    return (True, row[0])
+
+
+async def get_user_role(user_id: int) -> Optional[str]:
+    """Get user role (admin/parent/student) or None if not found."""
+    db = get_db()
+    row = await db.fetchone(
+        "SELECT role FROM users WHERE user_id = ? AND is_blocked = 0",
+        (user_id,),
+    )
+    return row[0] if row else None
+
+
+async def set_user_access(user_id: int, role: str = "student") -> None:
+    """Add or update a user with given role. Also unblocks if was blocked."""
+    db = get_db()
+    # Проверяем, существует ли пользователь
+    existing = await db.fetchone("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
+    if existing:
+        await db.execute(
+            "UPDATE users SET role = ?, is_blocked = 0 WHERE user_id = ?",
+            (role, user_id),
+        )
+    else:
+        await db.execute(
+            "INSERT INTO users (user_id, role, is_blocked) VALUES (?, ?, 0)",
+            (user_id, role),
+        )
+
+
+async def block_user(user_id: int) -> bool:
+    """Block a user. Returns True if user existed, False otherwise."""
+    db = get_db()
+    conn = await db.connect()
+    cursor = await conn.execute(
+        "UPDATE users SET is_blocked = 1 WHERE user_id = ?",
+        (user_id,),
+    )
+    await conn.commit()
+    return cursor.rowcount > 0
+
+
+async def get_all_users_list() -> List[Dict]:
+    """Get all users with their roles and block status."""
+    db = get_db()
+    rows = await db.fetchall(
+        "SELECT user_id, first_name, username, role, is_blocked FROM users ORDER BY user_id"
+    )
+    return [
+        {
+            "user_id": row[0],
+            "first_name": row[1],
+            "username": row[2],
+            "role": row[3],
+            "is_blocked": row[4],
+        }
+        for row in rows
+    ]
+
+
+async def ensure_quiz_user(
+    user_id: int,
+    username: Optional[str] = None,
+    first_name: Optional[str] = None,
+) -> None:
+    """Create or update a quiz user record (обновить last_active)."""
+    db = get_db()
+    existing = await db.fetchone("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
+    if existing:
+        await db.execute(
+            "UPDATE users SET username = ?, first_name = ?, last_active = datetime('now') WHERE user_id = ?",
+            (username, first_name, user_id),
+        )
+    else:
+        await db.execute(
+            "INSERT INTO users (user_id, username, first_name, role) VALUES (?, ?, ?, 'student')",
+            (user_id, username, first_name),
+        )
+
+
+# ============================================================================
+# QUIZ / TEST SESSIONS
+# ============================================================================
+
+async def save_test_session(
+    user_id: int,
+    language: str,
+    topic: str,
+    total: int,
+    correct: int,
+    percent: float,
+    answers: List[Dict],
+) -> int:
+    """Save a completed test session and its individual question results."""
+    db = get_db()
+    conn = await db.connect()
+
+    cursor = await conn.execute(
+        """INSERT INTO test_sessions (user_id, language, topic, total_questions, correct_answers, score_percent)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (user_id, language, topic, total, correct, percent),
+    )
+    session_id = cursor.lastrowid
+
+    for a in answers:
+        await conn.execute(
+            """INSERT INTO question_results
+               (session_id, question_type, question_text, correct_answer, user_answer, is_correct, explanation)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                session_id,
+                a.get("question_type", ""),
+                a.get("question_text", ""),
+                a.get("correct_answer", ""),
+                a.get("user_answer", ""),
+                1 if a.get("is_correct") else 0,
+                a.get("explanation", ""),
+            ),
+        )
+
+    await conn.commit()
+    return session_id
+
+
+async def get_user_sessions(user_id: int, limit: int = 10) -> List[Dict]:
+    """Get recent test sessions for a user."""
+    db = get_db()
+    rows = await db.fetchall(
+        """SELECT id, language, topic, total_questions, correct_answers, score_percent, finished_at
+           FROM test_sessions
+           WHERE user_id = ?
+           ORDER BY finished_at DESC
+           LIMIT ?""",
+        (user_id, limit),
+    )
+    return [
+        {
+            "id": row[0],
+            "language": row[1],
+            "topic": row[2],
+            "total_questions": row[3],
+            "correct_answers": row[4],
+            "score_percent": row[5],
+            "finished_at": row[6],
+        }
+        for row in rows
+    ]
+
+
+async def get_weak_topics(user_id: int) -> List[Dict]:
+    """Get topics where the user scored below 70%."""
+    db = get_db()
+    rows = await db.fetchall(
+        """SELECT language, topic, AVG(score_percent) as avg_score, COUNT(*) as attempts
+           FROM test_sessions
+           WHERE user_id = ?
+           GROUP BY language, topic
+           HAVING avg_score < 70
+           ORDER BY avg_score ASC""",
+        (user_id,),
+    )
+    return [
+        {
+            "language": row[0],
+            "topic": row[1],
+            "avg_score": row[2],
+            "attempts": row[3],
+        }
+        for row in rows
+    ]
+
+
+async def get_recent_questions(
+    user_id: int, language: str, topic: str, limit: int = 50,
+) -> List[str]:
+    """Get recent question texts for deduplication."""
+    db = get_db()
+    rows = await db.fetchall(
+        """SELECT qr.question_text
+           FROM question_results qr
+           JOIN test_sessions ts ON qr.session_id = ts.id
+           WHERE ts.user_id = ?
+             AND ts.language = ?
+             AND ts.topic = ?
+           ORDER BY ts.finished_at DESC, qr.id DESC
+           LIMIT ?""",
+        (user_id, language, topic, limit),
+    )
+    return [row[0] for row in rows]
+
+
+async def get_stats_summary(user_id: int) -> Dict:
+    """Get overall stats for a user."""
+    db = get_db()
+    row = await db.fetchone(
+        """SELECT
+               COUNT(*) as total_tests,
+               AVG(score_percent) as avg_score,
+               SUM(total_questions) as total_questions_answered,
+               SUM(correct_answers) as total_correct
+           FROM test_sessions
+           WHERE user_id = ?""",
+        (user_id,),
+    )
+    if not row:
+        return {}
+    return {
+        "total_tests": row[0],
+        "avg_score": row[1],
+        "total_questions_answered": row[2],
+        "total_correct": row[3],
+    }

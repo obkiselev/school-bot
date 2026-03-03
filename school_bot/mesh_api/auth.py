@@ -302,6 +302,9 @@ class MeshAuth:
             }
         """
         self.api.token = token
+        # SOCKS5 прокси для aiohttp-запросов к dnevnik.mos.ru
+        if self._proxy_url:
+            self.api._socks_proxy = self._proxy_url
 
         try:
             profiles = await self.api.get_users_profile_info()
@@ -323,15 +326,33 @@ class MeshAuth:
 
         children = family.children or []
 
+        refresh_token = getattr(self.api, "token_for_refresh", None)
+        client_id = getattr(self.api, "client_id", None)
+        client_secret = getattr(self.api, "client_secret", None)
+
+        if not refresh_token or not client_id or not client_secret:
+            missing = []
+            if not refresh_token:
+                missing.append("refresh_token")
+            if not client_id:
+                missing.append("client_id")
+            if not client_secret:
+                missing.append("client_secret")
+            logger.warning(
+                "curl_cffi _finalize_auth: НЕПОЛНЫЕ OAuth-данные! "
+                "Отсутствуют: [%s]. Обновление токена будет невозможно.",
+                ", ".join(missing),
+            )
+
         return {
             "status": "ok",
             "token": token,
             "profile_id": profile_id,
             "mes_role": mes_role,
             "children": children,
-            "refresh_token": getattr(self.api, "token_for_refresh", None),
-            "client_id": getattr(self.api, "client_id", None),
-            "client_secret": getattr(self.api, "client_secret", None),
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+            "client_secret": client_secret,
         }
 
     @staticmethod
@@ -350,6 +371,13 @@ class MeshAuth:
             AuthenticationError: Если refresh_token истёк
         """
         api = AsyncMobileAPI(system=Systems.MES)
+        try:
+            from config import settings
+            proxy_settings = settings.get_proxy_settings()
+            if proxy_settings:
+                api._socks_proxy = proxy_settings["curl_cffi"]
+        except Exception:
+            pass
 
         try:
             new_token = await api.refresh_token(
@@ -369,9 +397,9 @@ class MeshAuth:
         }
 
 
-# ─── Трёхуровневая авторизация: patchright → playwright+stealth → curl_cffi ──
-# PlaywrightMeshAuth (со стелсом) — основной метод.
-# Если браузер не может загрузить страницу — автоматический откат на curl_cffi.
+# ─── Двухуровневая авторизация: curl_cffi (OctoDiary) → Playwright ──────────
+# curl_cffi через SOCKS5 прокси — основной метод (даёт полные OAuth-данные).
+# Playwright (браузер) — запасной, если curl_cffi заблокирован по TLS/сети.
 
 _CurlCffiMeshAuth = MeshAuth  # Сохраняем оригинальный класс (curl_cffi)
 
@@ -388,14 +416,16 @@ except ImportError:
 
 
 class HybridMeshAuth:
-    """Пробует PlaywrightMeshAuth, при неудаче — откат на curl_cffi MeshAuth.
+    """Пробует curl_cffi (OctoDiary) ПЕРВЫМ, при неудаче — откат на Playwright.
+
+    curl_cffi даёт long-lived Bearer-токен + refresh_token + client_id/secret.
+    Playwright даёт session-bound токен без OAuth-данных (только как запасной).
 
     Порядок авторизации:
     1. TCP pre-check (прокси или login.mos.ru напрямую)
-    2. Playwright (реальный браузер, свой TLS) — пробуем первым
-    3. Если Playwright не смог → TLS pre-check через curl_cffi
-    4. Если TLS OK → curl_cffi fallback
-    5. Если TLS FAIL → ошибка с советом настроить прокси
+    2. TLS pre-check через curl_cffi
+    3. curl_cffi (OctoDiary) — основной метод (через SOCKS5 прокси)
+    4. Если curl_cffi не смог (сеть) → Playwright fallback
     """
 
     def __init__(self):
@@ -431,43 +461,46 @@ class HybridMeshAuth:
                 "Попробуйте позже."
             )
 
-        # Шаг 2: Playwright (реальный браузер) — пробуем первым.
-        # Playwright использует свой TLS (Chromium BoringSSL), поэтому
-        # curl_cffi TLS pre-check не нужен перед ним.
+        # Шаг 2: TLS pre-check через curl_cffi
+        tls_ok = await _check_curl_cffi_tls(proxy_url)
+
+        # Шаг 3: curl_cffi (OctoDiary) — основной метод
+        # Даёт long-lived Bearer-токен + refresh_token + client_id/secret
+        if tls_ok:
+            try:
+                logger.info("Авторизация через curl_cffi (OctoDiary) — основной метод")
+                self._impl = _CurlCffiMeshAuth(proxy_url=proxy_url)
+                return await self._impl.start_login(login, password, on_retry)
+            except AuthenticationError:
+                # Неверный пароль — Playwright не поможет
+                raise
+            except Exception as e:
+                logger.warning(
+                    "curl_cffi авторизация не удалась, пробуем Playwright: %s", e
+                )
+        else:
+            logger.warning("curl_cffi TLS pre-check: FAIL, переходим к Playwright")
+
+        # Шаг 4: Playwright fallback (браузерная авторизация)
         if _has_playwright:
             try:
+                logger.info("Переключаемся на Playwright (браузерная авторизация)")
                 self._impl = PlaywrightMeshAuth()
                 return await self._impl.start_login(login, password, on_retry)
-            except NetworkError as e:
-                error_msg = str(e).lower()
-                if "не загрузилась" in error_msg or "not loaded" in error_msg:
-                    logger.warning(
-                        "Playwright не смог загрузить страницу, "
-                        "переключаемся на curl_cffi: %s", e,
-                    )
-                else:
-                    raise
             except Exception as e:
-                logger.warning("Playwright ошибка, пробуем curl_cffi: %s", e)
+                logger.error("Playwright тоже не смог: %s", e)
+                raise
 
-        # Шаг 3: TLS pre-check через curl_cffi (только перед curl_cffi fallback)
-        tls_ok = await _check_curl_cffi_tls(proxy_url)
-        if not tls_ok:
-            logger.warning("curl_cffi TLS pre-check: FAIL")
-            msg = "Сервер login.mos.ru блокирует подключение (TLS)."
-            if not proxy_url:
-                msg += (
-                    " Попробуйте настроить прокси: добавьте MESH_PROXY_URL в .env файл"
-                    " (например: MESH_PROXY_URL=socks5://host:port)."
-                )
-            else:
-                msg += " Прокси не помог. Попробуйте другой прокси или подождите."
-            raise NetworkError(msg)
-
-        # Шаг 4: curl_cffi fallback через OctoDiary
-        logger.info("Используем curl_cffi fallback для авторизации")
-        self._impl = _CurlCffiMeshAuth(proxy_url=proxy_url)
-        return await self._impl.start_login(login, password, on_retry)
+        # Ни один метод не сработал
+        msg = "Сервер login.mos.ru блокирует подключение."
+        if not proxy_url:
+            msg += (
+                " Попробуйте настроить прокси: добавьте MESH_PROXY_URL в .env файл"
+                " (например: MESH_PROXY_URL=socks5://host:port)."
+            )
+        else:
+            msg += " Попробуйте другой прокси или подождите."
+        raise NetworkError(msg)
 
     async def verify_sms(self, code):
         if not self._impl:

@@ -1,9 +1,11 @@
 """Registration flow handlers — авторизация через mos.ru + SMS."""
 import logging
+from datetime import datetime, timedelta
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
+from aiogram.exceptions import TelegramBadRequest
 
 from states.registration import RegistrationStates
 from database.crud import create_user, add_child, create_default_notifications, log_activity
@@ -211,14 +213,32 @@ async def _process_auth_success(
     students = [student_from_octodiary(child) for child in children_data]
 
     # Save to FSM
+    _refresh = auth_result.get("refresh_token")
+    _client_id = auth_result.get("client_id")
+    _client_secret = auth_result.get("client_secret")
+
+    logger.info(
+        "OAuth-данные из auth: refresh_token=%s, client_id=%s, client_secret=%s, user_id=%d",
+        "present" if _refresh else "MISSING",
+        "present" if _client_id else "MISSING",
+        "present" if _client_secret else "MISSING",
+        message.from_user.id,
+    )
+    if not _refresh or not _client_id or not _client_secret:
+        logger.warning(
+            "OAuth-данные НЕПОЛНЫЕ при регистрации! "
+            "Обновление токена будет невозможно после истечения сессии. user_id=%d",
+            message.from_user.id,
+        )
+
     await state.update_data(
         mesh_password=password,
         mesh_token=token,
         mesh_profile_id=auth_result.get("profile_id"),
         mesh_role=auth_result.get("mes_role"),
-        mesh_refresh_token=auth_result.get("refresh_token"),
-        mesh_client_id=auth_result.get("client_id"),
-        mesh_client_secret=auth_result.get("client_secret"),
+        mesh_refresh_token=_refresh,
+        mesh_client_id=_client_id,
+        mesh_client_secret=_client_secret,
         students=students,
     )
 
@@ -242,7 +262,7 @@ async def show_children_selection(message: Message, students, state: FSMContext)
 
         keyboard_buttons.append([
             InlineKeyboardButton(
-                text=f"  {full_name}",
+                text=f"\u2705 {full_name}",
                 callback_data=f"select_child_{student.student_id}"
             )
         ])
@@ -299,7 +319,7 @@ async def toggle_child_selection(callback: CallbackQuery, state: FSMContext):
         if student.class_name:
             full_name += f" ({student.class_name})"
 
-        prefix = "  " if student.student_id in selected_ids else "  "
+        prefix = "\u2705" if student.student_id in selected_ids else "\u2b1c"
 
         keyboard_buttons.append([
             InlineKeyboardButton(
@@ -317,7 +337,10 @@ async def toggle_child_selection(callback: CallbackQuery, state: FSMContext):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
 
-    await callback.message.edit_reply_markup(reply_markup=keyboard)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=keyboard)
+    except TelegramBadRequest:
+        pass
     await callback.answer()
 
 
@@ -348,6 +371,14 @@ async def confirm_children_selection(callback: CallbackQuery, state: FSMContext)
         students = data.get("students", [])
 
         # Create user with OAuth fields
+        logger.info(
+            "Сохранение в БД: refresh_token=%s, client_id=%s, client_secret=%s, user_id=%d",
+            "present" if data.get("mesh_refresh_token") else "MISSING",
+            "present" if data.get("mesh_client_id") else "MISSING",
+            "present" if data.get("mesh_client_secret") else "MISSING",
+            user_id,
+        )
+        token_expires_at = (datetime.now() + timedelta(hours=24)).isoformat()
         await create_user(
             user_id=user_id,
             username=callback.from_user.username,
@@ -356,6 +387,7 @@ async def confirm_children_selection(callback: CallbackQuery, state: FSMContext)
             mesh_login=login,
             mesh_password=password,
             mesh_token=token,
+            token_expires_at=token_expires_at,
             mesh_refresh_token=data.get("mesh_refresh_token"),
             mesh_client_id=data.get("mesh_client_id"),
             mesh_client_secret=data.get("mesh_client_secret"),

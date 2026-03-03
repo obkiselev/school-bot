@@ -60,12 +60,21 @@
 
 ## О проекте
 
-- **Название**: School Bot — Telegram-бот для МЭШ
+- **Название**: School Bot — единый школьный Telegram-бот
 - **Язык**: Python 3.9+
 - **Фреймворк**: aiogram 3.25 (асинхронный)
 - **БД**: SQLite через aiosqlite
 - **Конфигурация**: pydantic-settings + .env
 - **Шифрование**: cryptography (Fernet)
+- **LLM**: LM Studio (OpenAI-совместимый API, localhost:1234)
+
+## Ролевая система
+
+- **admin** — управление пользователями, полный доступ
+- **parent** — МЭШ: расписание, оценки, ДЗ
+- **student** — тестирование по языкам через AI
+- Доступ только через админа (`/allow <id> role`)
+- Главный админ (ADMIN_ID) неудаляем, создаётся автоматически
 
 ## Структура проекта
 
@@ -74,12 +83,14 @@ school_bot/
 ├── bot.py              # Точка входа
 ├── config.py           # Настройки (pydantic-settings)
 ├── core/               # database.py, encryption.py
-├── mesh_api/           # auth.py, client.py, endpoints.py, models.py, exceptions.py
-├── handlers/           # start.py, registration.py, schedule.py
-├── keyboards/          # Клавиатуры (в планах)
-├── states/             # FSM states (registration.py)
-├── database/           # crud.py, migrations/init.sql
-├── notifications/      # Уведомления (в планах)
+├── mesh_api/           # auth.py, client.py, endpoints.py, models.py, exceptions.py, proxy_patch.py
+├── handlers/           # start.py, registration.py, schedule.py, admin.py, quiz.py, language.py, topic.py, quiz_settings.py, history.py
+├── keyboards/          # main_menu.py (меню по ролям), quiz_kb.py (клавиатуры квизов)
+├── middlewares/         # access.py (Access Control Middleware)
+├── llm/                # client.py, prompts.py, parser.py (LM Studio интеграция)
+├── services/           # test_generator.py, answer_checker.py, progress_tracker.py
+├── states/             # registration.py, quiz_states.py
+├── database/           # crud.py, migrations/init.sql, 002_octodiary.sql, 003_add_quiz_and_access.sql
 ├── utils/              # token_manager.py
 ├── tests/              # test_schedule.py, conftest.py
 └── data/               # SQLite БД, логи
@@ -88,6 +99,10 @@ school_bot/
 ## Важные детали
 
 - Пароли МЭШ хранятся зашифрованными (Fernet), ключ в .env
-- FSM используется для пошаговой регистрации
+- FSM используется для пошаговой регистрации и квизов
 - МЭШ API неофициальное — может сломаться
 - Rate limit: не более 30 запросов/мин к МЭШ API
+- LLM (LM Studio) должен быть запущен локально для генерации тестов
+- Access Control Middleware проверяет роль при каждом запросе
+- **Браузер для Playwright/patchright**: после `pip install -r requirements.txt` нужно отдельно скачать браузер: `patchright install chromium`. Без этого авторизация через браузер не работает (ошибка "Executable doesn't exist")
+- **Авторизация МЭШ — двухуровневая** (HybridMeshAuth в `mesh_api/auth.py`): сначала curl_cffi (TLS impersonation), при неудаче — Playwright (stealth-браузер). curl_cffi даёт полные OAuth-токены для refresh, Playwright — сессионный токен

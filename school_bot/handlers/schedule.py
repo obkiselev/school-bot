@@ -8,7 +8,7 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
-from database.crud import get_user, get_user_children
+from database.crud import get_user, get_user_children, invalidate_token
 from mesh_api.client import MeshClient
 from mesh_api.exceptions import AuthenticationError, MeshAPIError
 from mesh_api.models import Lesson
@@ -294,17 +294,17 @@ async def _handle_schedule_request(
     user = await get_user(user_id)
     mes_role = user.get("mesh_role", "parent") if user else "parent"
 
-    # Получаем токен
+    # Получаем токен и расписание (с retry при 401)
     try:
         token = await ensure_token(user_id)
-    except AuthenticationError:
+    except AuthenticationError as e:
+        logger.error("Ошибка авторизации МЭШ для user_id=%d: %s", user_id, e)
         await callback.message.edit_text(
-            "\u274c Не удалось подключиться к МЭШ. "
-            "Пожалуйста, перерегистрируйтесь: /start"
+            f"\u274c {e}\n\n"
+            "Для перерегистрации нажмите /start"
         )
         return
 
-    # Получаем расписание
     try:
         text, keyboard = await _get_schedule_text(
             student_id, period, token,
@@ -314,11 +314,24 @@ async def _handle_schedule_request(
             text, reply_markup=keyboard, parse_mode="HTML"
         )
     except AuthenticationError:
-        logger.error("Ошибка авторизации МЭШ для user_id=%d", user_id)
-        await callback.message.edit_text(
-            "\u274c Не удалось подключиться к МЭШ. "
-            "Пожалуйста, перерегистрируйтесь: /start"
-        )
+        # Токен оказался недействительным — сбрасываем и пробуем получить новый
+        logger.warning("Токен 401 для user_id=%d, пробуем переавторизацию", user_id)
+        try:
+            await invalidate_token(user_id)
+            token = await ensure_token(user_id)
+            text, keyboard = await _get_schedule_text(
+                student_id, period, token,
+                person_id=person_id, mes_role=mes_role,
+            )
+            await callback.message.edit_text(
+                text, reply_markup=keyboard, parse_mode="HTML"
+            )
+        except AuthenticationError as e2:
+            logger.error("Повторная авторизация не помогла для user_id=%d: %s", user_id, e2)
+            await callback.message.edit_text(
+                f"\u274c {e2}\n\n"
+                "Для перерегистрации нажмите /start"
+            )
     except MeshAPIError as e:
         logger.error("Ошибка API МЭШ для user_id=%d: %s", user_id, e)
         retry_keyboard = _get_retry_keyboard(student_id, period)
@@ -370,17 +383,17 @@ async def cmd_raspisanie(message: Message):
     # Получаем данные пользователя для mes_role
     mes_role = user.get("mesh_role", "parent") if user else "parent"
 
-    # Получаем токен
+    # Получаем токен и расписание (с retry при 401)
     try:
         token = await ensure_token(user_id)
-    except AuthenticationError:
+    except AuthenticationError as e:
+        logger.error("Ошибка авторизации МЭШ для user_id=%d: %s", user_id, e)
         await message.answer(
-            "\u274c Не удалось подключиться к МЭШ. "
-            "Пожалуйста, перерегистрируйтесь: /start"
+            f"\u274c {e}\n\n"
+            "Для перерегистрации нажмите /start"
         )
         return
 
-    # Получаем расписание
     try:
         text, keyboard = await _get_schedule_text(
             student_id, "today", token,
@@ -388,11 +401,22 @@ async def cmd_raspisanie(message: Message):
         )
         await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
     except AuthenticationError:
-        logger.error("Ошибка авторизации МЭШ для user_id=%d", user_id)
-        await message.answer(
-            "\u274c Не удалось подключиться к МЭШ. "
-            "Пожалуйста, перерегистрируйтесь: /start"
-        )
+        # Токен оказался недействительным — сбрасываем и пробуем получить новый
+        logger.warning("Токен 401 для user_id=%d, пробуем переавторизацию", user_id)
+        try:
+            await invalidate_token(user_id)
+            token = await ensure_token(user_id)
+            text, keyboard = await _get_schedule_text(
+                student_id, "today", token,
+                person_id=person_id, mes_role=mes_role,
+            )
+            await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+        except AuthenticationError as e2:
+            logger.error("Повторная авторизация не помогла для user_id=%d: %s", user_id, e2)
+            await message.answer(
+                f"\u274c {e2}\n\n"
+                "Для перерегистрации нажмите /start"
+            )
     except MeshAPIError as e:
         logger.error("Ошибка API МЭШ для user_id=%d: %s", user_id, e)
         retry_keyboard = _get_retry_keyboard(student_id, "today")
@@ -403,59 +427,94 @@ async def cmd_raspisanie(message: Message):
 
 
 # ============================================================================
+# ОБРАБОТЧИК КНОПКИ МЕНЮ
+# ============================================================================
+
+@router.callback_query(F.data == "menu:raspisanie")
+async def cb_menu_raspisanie(callback: CallbackQuery):
+    """Обработчик кнопки 'Расписание' из главного меню."""
+    await callback.answer()
+    user_id = callback.from_user.id
+
+    user = await get_user(user_id)
+    if not user:
+        await callback.message.edit_text(
+            "Вы ещё не зарегистрированы. Сначала зарегистрируйтесь: /start"
+        )
+        return
+
+    children = await get_user_children(user_id)
+    if not children:
+        await callback.message.edit_text(
+            "У вас нет привязанных детей. Пройдите регистрацию: /start"
+        )
+        return
+
+    if len(children) > 1:
+        keyboard = _get_child_keyboard(children)
+        await callback.message.edit_text(
+            "Выберите ребёнка для просмотра расписания:",
+            reply_markup=keyboard
+        )
+        return
+
+    # Один ребёнок — сразу расписание на сегодня
+    child = children[0]
+    student_id = child["student_id"]
+    await _handle_schedule_request(callback, student_id, "today")
+
+
+# ============================================================================
 # ОБРАБОТЧИКИ CALLBACK
 # ============================================================================
 
 @router.callback_query(F.data.startswith("sched:child:"))
 async def cb_select_child(callback: CallbackQuery):
     """Обработчик выбора ребёнка — показать расписание на сегодня."""
-    try:
-        parsed = _parse_callback_data(callback.data)
-        if parsed is None:
-            logger.warning("Невалидный callback_data: %s", callback.data)
-            return
+    await callback.answer()  # Сразу отвечаем Telegram (до долгих операций)
 
-        _, student_id, _ = parsed
-        await _handle_schedule_request(callback, student_id, "today")
-    finally:
-        await callback.answer()
+    parsed = _parse_callback_data(callback.data)
+    if parsed is None:
+        logger.warning("Невалидный callback_data: %s", callback.data)
+        return
+
+    _, student_id, _ = parsed
+    await _handle_schedule_request(callback, student_id, "today")
 
 
 @router.callback_query(F.data.startswith("sched:period:"))
 async def cb_switch_period(callback: CallbackQuery):
     """Обработчик переключения периода (сегодня/завтра/неделя)."""
-    try:
-        parsed = _parse_callback_data(callback.data)
-        if parsed is None:
-            logger.warning("Невалидный callback_data: %s", callback.data)
-            return
+    await callback.answer()  # Сразу отвечаем Telegram (до долгих операций)
 
-        _, student_id, period = parsed
+    parsed = _parse_callback_data(callback.data)
+    if parsed is None:
+        logger.warning("Невалидный callback_data: %s", callback.data)
+        return
 
-        if period not in ("today", "tomorrow", "week"):
-            logger.warning("Неизвестный период в callback_data: %s", callback.data)
-            return
+    _, student_id, period = parsed
 
-        await _handle_schedule_request(callback, student_id, period)
-    finally:
-        await callback.answer()
+    if period not in ("today", "tomorrow", "week"):
+        logger.warning("Неизвестный период в callback_data: %s", callback.data)
+        return
+
+    await _handle_schedule_request(callback, student_id, period)
 
 
 @router.callback_query(F.data.startswith("sched:retry:"))
 async def cb_retry(callback: CallbackQuery):
     """Обработчик кнопки 'Повторить' после ошибки."""
-    try:
-        parsed = _parse_callback_data(callback.data)
-        if parsed is None:
-            logger.warning("Невалидный callback_data: %s", callback.data)
-            return
+    await callback.answer()  # Сразу отвечаем Telegram (до долгих операций)
 
-        _, student_id, period = parsed
+    parsed = _parse_callback_data(callback.data)
+    if parsed is None:
+        logger.warning("Невалидный callback_data: %s", callback.data)
+        return
 
-        if period not in ("today", "tomorrow", "week"):
-            logger.warning("Неизвестный период в callback_data: %s", callback.data)
-            return
+    _, student_id, period = parsed
 
-        await _handle_schedule_request(callback, student_id, period)
-    finally:
-        await callback.answer()
+    if period not in ("today", "tomorrow", "week"):
+        logger.warning("Неизвестный период в callback_data: %s", callback.data)
+        return
+
+    await _handle_schedule_request(callback, student_id, period)

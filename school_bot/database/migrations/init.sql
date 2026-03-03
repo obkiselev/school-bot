@@ -8,8 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
     first_name TEXT,
     last_name TEXT,
     registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    mesh_login TEXT NOT NULL,                       -- МЭШ login (encrypted)
-    mesh_password TEXT NOT NULL,                    -- МЭШ password (encrypted)
+    mesh_login TEXT,                                -- МЭШ login (encrypted)
+    mesh_password TEXT,                             -- МЭШ password (encrypted)
     mesh_token TEXT,                                -- Session token (encrypted)
     token_expires_at DATETIME,
     last_sync DATETIME,

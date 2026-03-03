@@ -9,7 +9,9 @@ import sys
 import threading
 import time
 from aiogram import Bot, Dispatcher
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand
 
 from config import settings
 from core import database
@@ -17,6 +19,8 @@ import mesh_api.proxy_patch  # noqa: F401 — патч OctoDiary для SOCKS5 �
 
 # Import handlers
 from handlers import start, registration, schedule
+from handlers import quiz, language, topic, quiz_settings, history, admin
+from middlewares.access import AccessControlMiddleware
 
 
 # Configure logging — stdout + файл (data/logs/bot.log)
@@ -131,13 +135,29 @@ def _start_ssh_tunnel() -> subprocess.Popen | None:
 
     local_port = _get_tunnel_port()
 
-    # Используем MESH_SSH_PATH если задан (Git SSH вместо зависающего Windows SSH)
-    ssh_exe = getattr(settings, "MESH_SSH_PATH", "") or "ssh"
-    if ssh_exe != "ssh":
+    # Git SSH вместо зависающего Windows OpenSSH
+    # Если MESH_SSH_PATH задан — используем его, иначе ищем Git SSH автоматически
+    ssh_exe = getattr(settings, "MESH_SSH_PATH", "") or ""
+    if ssh_exe:
         ssh_exe = os.path.expanduser(ssh_exe).replace("\\", "/")
         if not os.path.isfile(ssh_exe):
-            logger.warning("SSH-туннель: SSH-клиент не найден: %s, пробую системный", ssh_exe)
+            logger.warning("SSH-туннель: SSH-клиент не найден: %s, ищу Git SSH...", ssh_exe)
+            ssh_exe = ""
+    if not ssh_exe:
+        # Автопоиск Git SSH на известных компьютерах (Kata-17, Lenovo и др.)
+        _git_ssh_candidates = [
+            "E:/Progs/Git/usr/bin/ssh.exe",        # Kata-17
+            "D:/Programs/Git/usr/bin/ssh.exe",      # Lenovo
+            "C:/Program Files/Git/usr/bin/ssh.exe", # стандартная установка
+        ]
+        for candidate in _git_ssh_candidates:
+            if os.path.isfile(candidate):
+                ssh_exe = candidate
+                logger.info("SSH-туннель: найден Git SSH: %s", ssh_exe)
+                break
+        if not ssh_exe:
             ssh_exe = "ssh"
+            logger.warning("SSH-туннель: Git SSH не найден, использую системный ssh")
 
     cmd = [
         ssh_exe,
@@ -282,17 +302,43 @@ async def main():
     db = await database.init_database(settings.DATABASE_PATH)
     database.db = db  # Set global instance
 
-    # Initialize bot and dispatcher
-    bot = Bot(token=settings.BOT_TOKEN)
+    # Initialize bot and dispatcher (with proxy if configured)
+    bot_session = AiohttpSession(proxy=settings.MESH_PROXY_URL) if settings.MESH_PROXY_URL else None
+    if bot_session:
+        logger.info("Bot session: using proxy %s", settings.MESH_PROXY_URL)
+    bot = Bot(token=settings.BOT_TOKEN, session=bot_session)
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
+
+    # Access control middleware (проверка ролей)
+    dp.message.middleware(AccessControlMiddleware())
+    dp.callback_query.middleware(AccessControlMiddleware())
 
     # Register routers
     dp.include_router(start.router)
     dp.include_router(registration.router)
     dp.include_router(schedule.router)
+    dp.include_router(admin.router)
+    dp.include_router(language.router)
+    dp.include_router(topic.router)
+    dp.include_router(quiz_settings.router)
+    dp.include_router(quiz.router)
+    dp.include_router(history.router)
 
     logger.info("Bot handlers registered successfully")
+
+    # Регистрируем команды для меню Telegram
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Главное меню"),
+        BotCommand(command="raspisanie", description="Расписание уроков"),
+        BotCommand(command="ocenki", description="Оценки"),
+        BotCommand(command="dz", description="Домашние задания"),
+        BotCommand(command="allow", description="Добавить пользователя (админ)"),
+        BotCommand(command="block", description="Заблокировать (админ)"),
+        BotCommand(command="users", description="Список пользователей (админ)"),
+        BotCommand(command="help", description="Справка"),
+    ])
+    logger.info("Bot menu commands registered")
 
     # Start polling
     try:
