@@ -6,13 +6,13 @@ import logging
 import aiohttp
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand, BotCommandScopeChat
 from aiogram.fsm.context import FSMContext
 
 from config import settings
 from database.crud import user_exists, delete_user, get_user_role, get_user, ensure_quiz_user, set_user_access
 from states.registration import RegistrationStates
-from keyboards.main_menu import parent_menu_keyboard, student_menu_keyboard, admin_menu_keyboard, home_button
+from keyboards.main_menu import full_menu_keyboard, student_menu_keyboard, home_button
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -26,6 +26,48 @@ async def _close_octodiary_session(api) -> None:
             await session.close()
     except Exception:
         pass
+
+
+async def _set_user_commands(bot, user_id: int, role: str):
+    """Set Telegram Menu commands per user role."""
+    if role == "admin":
+        commands = [
+            BotCommand(command="start", description="Главное меню"),
+            BotCommand(command="raspisanie", description="Расписание уроков"),
+            BotCommand(command="ocenki", description="Оценки"),
+            BotCommand(command="dz", description="Домашние задания"),
+            BotCommand(command="test", description="Пройти тест"),
+            BotCommand(command="allow", description="Добавить пользователя"),
+            BotCommand(command="block", description="Заблокировать пользователя"),
+            BotCommand(command="users", description="Список пользователей"),
+            BotCommand(command="help", description="Справка"),
+        ]
+    elif role == "parent":
+        commands = [
+            BotCommand(command="start", description="Главное меню"),
+            BotCommand(command="raspisanie", description="Расписание уроков"),
+            BotCommand(command="ocenki", description="Оценки"),
+            BotCommand(command="dz", description="Домашние задания"),
+            BotCommand(command="test", description="Пройти тест"),
+            BotCommand(command="help", description="Справка"),
+        ]
+    elif role == "student":
+        commands = [
+            BotCommand(command="start", description="Главное меню"),
+            BotCommand(command="raspisanie", description="Расписание уроков"),
+            BotCommand(command="dz", description="Домашние задания"),
+            BotCommand(command="test", description="Пройти тест"),
+            BotCommand(command="help", description="Справка"),
+        ]
+    else:
+        commands = [
+            BotCommand(command="start", description="Главное меню"),
+            BotCommand(command="help", description="Справка"),
+        ]
+    try:
+        await bot.set_my_commands(commands, scope=BotCommandScopeChat(chat_id=user_id))
+    except Exception as e:
+        logger.warning("Failed to set commands for user %d: %s", user_id, e)
 
 
 @router.message(Command("testauth"))
@@ -233,33 +275,24 @@ async def cmd_start(message: Message, state: FSMContext):
     role = await get_user_role(user_id)
 
     if role == "admin":
-        # Админ — проверяем, есть ли МЭШ-данные (если да — полное меню)
-        user = await get_user(user_id)
-        has_mesh = user and user.get("mesh_token")
+        await _set_user_commands(message.bot, user_id, role)
         await message.answer(
             "👋 С возвращением, администратор!\n\n"
-            "Доступные команды:\n"
-            "/raspisanie — Расписание уроков\n"
-            "/test — Пройти тест по языку\n"
-            "/allow — Добавить пользователя\n"
-            "/block — Заблокировать пользователя\n"
-            "/users — Список пользователей\n"
-            "/help — Справка",
-            reply_markup=admin_menu_keyboard(),
+            "Выберите действие:",
+            reply_markup=full_menu_keyboard(),
         )
 
     elif role == "parent":
-        # Родитель — проверяем, прошёл ли МЭШ-регистрацию
+        await _set_user_commands(message.bot, user_id, role)
         user = await get_user(user_id)
         has_mesh = user and user.get("mesh_login")
         if has_mesh:
             await message.answer(
                 "👋 С возвращением!\n\n"
                 "Выберите действие:",
-                reply_markup=parent_menu_keyboard(),
+                reply_markup=full_menu_keyboard(),
             )
         else:
-            # Ещё не прошёл МЭШ-регистрацию
             await message.answer(
                 "👋 Добро пожаловать!\n\n"
                 "Для доступа к расписанию, оценкам и ДЗ\n"
@@ -269,13 +302,24 @@ async def cmd_start(message: Message, state: FSMContext):
             await state.set_state(RegistrationStates.waiting_for_mesh_login)
 
     elif role == "student":
-        # Ученик — обновить данные и показать меню тестирования
         await ensure_quiz_user(user_id, message.from_user.username, message.from_user.first_name)
-        await message.answer(
-            "👋 Привет! Я Школьный помощник.\n\n"
-            "Выбери, что хочешь сделать:",
-            reply_markup=student_menu_keyboard(),
-        )
+        await _set_user_commands(message.bot, user_id, role)
+        user = await get_user(user_id)
+        has_mesh = user and user.get("mesh_login")
+        if has_mesh:
+            await message.answer(
+                "👋 Привет! Я Школьный помощник.\n\n"
+                "Выбери, что хочешь сделать:",
+                reply_markup=student_menu_keyboard(),
+            )
+        else:
+            await message.answer(
+                "👋 Привет! Я Школьный помощник.\n\n"
+                "Для доступа к расписанию и домашним заданиям\n"
+                "необходимо войти в систему МЭШ.\n\n"
+                "Введите ваш логин от dnevnik.mos.ru:"
+            )
+            await state.set_state(RegistrationStates.waiting_for_mesh_login)
 
     else:
         await message.answer("❗ Роль не определена. Обратитесь к администратору.")
@@ -289,15 +333,13 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     role = await get_user_role(user_id)
 
-    if role == "admin":
-        await callback.message.edit_text("Главное меню:", reply_markup=admin_menu_keyboard())
-    elif role == "parent":
-        await callback.message.edit_text("Главное меню:", reply_markup=parent_menu_keyboard())
-    elif role == "student":
+    if role == "student":
         await callback.message.edit_text(
             "👋 Выбери, что хочешь сделать:",
             reply_markup=student_menu_keyboard(),
         )
+    else:
+        await callback.message.edit_text("Главное меню:", reply_markup=full_menu_keyboard())
     await callback.answer()
 
 
@@ -306,9 +348,17 @@ async def cb_reregister(callback: CallbackQuery, state: FSMContext):
     """Перерегистрация: удалить старые данные и начать заново."""
     user_id = callback.from_user.id
 
+    # Сохраняем роль перед удалением
+    role = await get_user_role(user_id)
+
     await delete_user(user_id)
     await state.clear()
-    logger.info("Перерегистрация: пользователь удалён, user_id=%d", user_id)
+
+    # Восстанавливаем роль, чтобы пользователь не потерял доступ
+    if role:
+        await set_user_access(user_id, role)
+
+    logger.info("Перерегистрация: МЭШ-данные удалены, роль %s сохранена, user_id=%d", role, user_id)
 
     await callback.message.edit_text(
         "Старые данные удалены.\n\n"

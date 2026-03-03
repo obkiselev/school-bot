@@ -7,29 +7,22 @@ def home_button() -> InlineKeyboardButton:
     return InlineKeyboardButton(text="🏠 Главное меню", callback_data="go_home")
 
 
-def parent_menu_keyboard() -> InlineKeyboardMarkup:
-    """Menu for parents (МЭШ features)."""
+def full_menu_keyboard() -> InlineKeyboardMarkup:
+    """Full menu for admin and parent (all features)."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📅 Расписание", callback_data="menu:raspisanie")],
         [InlineKeyboardButton(text="📊 Оценки", callback_data="menu:ocenki")],
         [InlineKeyboardButton(text="📝 Домашние задания", callback_data="menu:dz")],
+        [InlineKeyboardButton(text="🎓 Пройти тест", callback_data="start_test")],
+        [InlineKeyboardButton(text="📈 Результаты тестов", callback_data="my_results")],
         [InlineKeyboardButton(text="🔄 Перерегистрировать МЭШ", callback_data="reregister")],
     ])
 
 
 def student_menu_keyboard() -> InlineKeyboardMarkup:
-    """Menu for students (quiz features)."""
+    """Menu for students (schedule, homework, tests — no grades)."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📝 Пройти тест", callback_data="start_test")],
-        [InlineKeyboardButton(text="📈 Мои результаты", callback_data="my_results")],
-    ])
-
-
-def admin_menu_keyboard() -> InlineKeyboardMarkup:
-    """Menu for admins (all features)."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📅 Расписание", callback_data="menu:raspisanie")],
-        [InlineKeyboardButton(text="📊 Оценки", callback_data="menu:ocenki")],
+        [InlineKeyboardButton(text="📅 Расписание уроков", callback_data="menu:raspisanie")],
         [InlineKeyboardButton(text="📝 Домашние задания", callback_data="menu:dz")],
         [InlineKeyboardButton(text="🎓 Пройти тест", callback_data="start_test")],
         [InlineKeyboardButton(text="📈 Результаты тестов", callback_data="my_results")],

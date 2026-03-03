@@ -26,14 +26,13 @@ async def create_user(
     mesh_role: Optional[str] = None,
 ) -> bool:
     """
-    Create new user with encrypted credentials.
+    Create or update user with encrypted credentials.
 
-    Returns:
-        True if created successfully
+    If user already exists (e.g. from /allow or reregister),
+    updates MES data while preserving role and is_blocked.
     """
     db = get_db()
 
-    # Encrypt credentials
     encrypted_login = encrypt(mesh_login)
     encrypted_password = encrypt(mesh_password)
     encrypted_token = encrypt(mesh_token) if mesh_token else None
@@ -41,21 +40,39 @@ async def create_user(
     encrypted_client_id = encrypt(mesh_client_id) if mesh_client_id else None
     encrypted_client_secret = encrypt(mesh_client_secret) if mesh_client_secret else None
 
-    query = """
-        INSERT INTO users (
-            user_id, username, first_name, last_name,
-            mesh_login, mesh_password, mesh_token, token_expires_at,
-            mesh_refresh_token, mesh_client_id, mesh_client_secret,
-            mesh_profile_id, mesh_role
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """
+    existing = await db.fetchone("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
 
-    await db.execute(query, (
-        user_id, username, first_name, last_name,
-        encrypted_login, encrypted_password, encrypted_token, token_expires_at,
-        encrypted_refresh, encrypted_client_id, encrypted_client_secret,
-        mesh_profile_id, mesh_role,
-    ))
+    if existing:
+        query = """
+            UPDATE users SET
+                username = ?, first_name = ?, last_name = ?,
+                mesh_login = ?, mesh_password = ?, mesh_token = ?, token_expires_at = ?,
+                mesh_refresh_token = ?, mesh_client_id = ?, mesh_client_secret = ?,
+                mesh_profile_id = ?, mesh_role = ?
+            WHERE user_id = ?
+        """
+        await db.execute(query, (
+            username, first_name, last_name,
+            encrypted_login, encrypted_password, encrypted_token, token_expires_at,
+            encrypted_refresh, encrypted_client_id, encrypted_client_secret,
+            mesh_profile_id, mesh_role,
+            user_id,
+        ))
+    else:
+        query = """
+            INSERT INTO users (
+                user_id, username, first_name, last_name,
+                mesh_login, mesh_password, mesh_token, token_expires_at,
+                mesh_refresh_token, mesh_client_id, mesh_client_secret,
+                mesh_profile_id, mesh_role
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        await db.execute(query, (
+            user_id, username, first_name, last_name,
+            encrypted_login, encrypted_password, encrypted_token, token_expires_at,
+            encrypted_refresh, encrypted_client_id, encrypted_client_secret,
+            mesh_profile_id, mesh_role,
+        ))
 
     return True
 

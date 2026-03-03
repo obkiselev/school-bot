@@ -1,12 +1,24 @@
 """Language selection handler for quiz."""
 from aiogram import Router, F
-from aiogram.types import CallbackQuery
+from aiogram.filters import Command
+from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 
 from states.quiz_states import QuizFlow
 from keyboards.quiz_kb import language_keyboard, topic_keyboard
 
 router = Router()
+
+
+@router.message(Command("test"))
+async def cmd_test(message: Message, state: FSMContext):
+    """Handle /test — start quiz via slash command."""
+    await state.clear()
+    await state.set_state(QuizFlow.choosing_language)
+    await message.answer(
+        "🌍 Выбери язык для тестирования:",
+        reply_markup=language_keyboard(),
+    )
 
 
 @router.callback_query(F.data == "start_test")

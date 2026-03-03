@@ -329,18 +329,13 @@ async def main():
 
     logger.info("Bot handlers registered successfully")
 
-    # Регистрируем команды для меню Telegram
+    # Default-команды (для новых пользователей, ещё не нажавших /start)
+    # Персональные команды по роли устанавливаются в handlers/start.py
     await bot.set_my_commands([
         BotCommand(command="start", description="Главное меню"),
-        BotCommand(command="raspisanie", description="Расписание уроков"),
-        BotCommand(command="ocenki", description="Оценки"),
-        BotCommand(command="dz", description="Домашние задания"),
-        BotCommand(command="allow", description="Добавить пользователя (админ)"),
-        BotCommand(command="block", description="Заблокировать (админ)"),
-        BotCommand(command="users", description="Список пользователей (админ)"),
         BotCommand(command="help", description="Справка"),
     ])
-    logger.info("Bot menu commands registered")
+    logger.info("Bot default menu commands registered")
 
     # Start polling
     try:

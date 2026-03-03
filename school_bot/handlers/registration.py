@@ -8,7 +8,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 
 from states.registration import RegistrationStates
-from database.crud import create_user, add_child, create_default_notifications, log_activity
+from database.crud import create_user, add_child, create_default_notifications, log_activity, get_user_role
+from keyboards.main_menu import full_menu_keyboard, student_menu_keyboard
 from mesh_api.auth import MeshAuth, _pending_auth, clear_pending_auth, check_auth_cooldown, record_auth_attempt
 from mesh_api.models import student_from_octodiary
 from mesh_api.exceptions import AuthenticationError, NetworkError, MeshAPIError
@@ -422,21 +423,23 @@ async def confirm_children_selection(callback: CallbackQuery, state: FSMContext)
         # Clear FSM
         await state.clear()
 
-        await callback.message.edit_text(
-            f"Регистрация завершена успешно!\n\n"
-            f"Добавлено детей: {added_count}\n\n"
-            "Доступные команды:\n"
-            "/raspisanie - Расписание уроков\n"
-            "/ocenki - Оценки\n"
-            "/dz - Домашние задания\n"
-            "/profile - Мой профиль\n"
-            "/settings - Настройки уведомлений\n"
-            "/help - Справка\n\n"
-            "Уведомления включены по умолчанию:\n"
-            "  Оценки - каждый день в 18:00\n"
-            "  Домашние задания - каждый день в 19:00\n\n"
-            "Вы можете изменить настройки в /settings"
-        )
+        role = await get_user_role(user_id)
+
+        if role == "student":
+            await callback.message.edit_text(
+                f"Регистрация завершена!\n\n"
+                f"Добавлено детей: {added_count}\n\n"
+                "Теперь тебе доступны расписание и домашние задания.\n"
+                "Выбери, что хочешь сделать:",
+                reply_markup=student_menu_keyboard(),
+            )
+        else:
+            await callback.message.edit_text(
+                f"Регистрация завершена!\n\n"
+                f"Добавлено детей: {added_count}\n\n"
+                "Выберите действие:",
+                reply_markup=full_menu_keyboard(),
+            )
 
     except Exception as e:
         logger.error("Ошибка при сохранении регистрации: %s", e)
