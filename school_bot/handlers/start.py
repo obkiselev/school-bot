@@ -37,6 +37,7 @@ async def _set_user_commands(bot, user_id: int, role: str):
             BotCommand(command="ocenki", description="Оценки"),
             BotCommand(command="dz", description="Домашние задания"),
             BotCommand(command="test", description="Пройти тест"),
+            BotCommand(command="settings", description="Настройки уведомлений"),
             BotCommand(command="allow", description="Добавить пользователя"),
             BotCommand(command="block", description="Заблокировать пользователя"),
             BotCommand(command="users", description="Список пользователей"),
@@ -49,6 +50,7 @@ async def _set_user_commands(bot, user_id: int, role: str):
             BotCommand(command="ocenki", description="Оценки"),
             BotCommand(command="dz", description="Домашние задания"),
             BotCommand(command="test", description="Пройти тест"),
+            BotCommand(command="settings", description="Настройки уведомлений"),
             BotCommand(command="help", description="Справка"),
         ]
     elif role == "student":
@@ -57,6 +59,7 @@ async def _set_user_commands(bot, user_id: int, role: str):
             BotCommand(command="raspisanie", description="Расписание уроков"),
             BotCommand(command="dz", description="Домашние задания"),
             BotCommand(command="test", description="Пройти тест"),
+            BotCommand(command="settings", description="Настройки уведомлений"),
             BotCommand(command="help", description="Справка"),
         ]
     else:

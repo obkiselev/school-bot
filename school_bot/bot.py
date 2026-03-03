@@ -20,7 +20,9 @@ import mesh_api.proxy_patch  # noqa: F401 — патч OctoDiary для SOCKS5 �
 # Import handlers
 from handlers import start, registration, schedule, ocenki, dz
 from handlers import quiz, language, topic, quiz_settings, history, admin
+from handlers import settings as settings_handler
 from middlewares.access import AccessControlMiddleware
+from services.notification_service import init_scheduler
 
 
 # Configure logging — stdout + файл (data/logs/bot.log)
@@ -326,6 +328,7 @@ async def main():
     dp.include_router(quiz_settings.router)
     dp.include_router(quiz.router)
     dp.include_router(history.router)
+    dp.include_router(settings_handler.router)
 
     logger.info("Bot handlers registered successfully")
 
@@ -336,6 +339,14 @@ async def main():
         BotCommand(command="help", description="Справка"),
     ])
     logger.info("Bot default menu commands registered")
+
+    # Инициализация и запуск планировщика уведомлений
+    scheduler = init_scheduler(bot)
+    scheduler.start()
+    logger.info("APScheduler started: grades at %s, homework at %s (%s)",
+                settings.GRADES_NOTIFICATION_TIME,
+                settings.HOMEWORK_NOTIFICATION_TIME,
+                settings.TIMEZONE)
 
     # Start polling
     try:
@@ -349,6 +360,8 @@ async def main():
         raise
     finally:
         # Cleanup
+        scheduler.shutdown(wait=False)
+        logger.info("APScheduler stopped")
         await bot.session.close()
         if db:
             await db.close()

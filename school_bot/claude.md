@@ -88,11 +88,11 @@ school_bot/
 ├── config.py           # Настройки (pydantic-settings)
 ├── core/               # database.py, encryption.py
 ├── mesh_api/           # auth.py, client.py, endpoints.py, models.py, exceptions.py, proxy_patch.py
-├── handlers/           # start.py, registration.py, schedule.py, ocenki.py, dz.py, admin.py, quiz.py, language.py, topic.py, quiz_settings.py, history.py
+├── handlers/           # start.py, registration.py, schedule.py, ocenki.py, dz.py, admin.py, quiz.py, language.py, topic.py, quiz_settings.py, history.py, settings.py
 ├── keyboards/          # main_menu.py (меню по ролям), quiz_kb.py (клавиатуры квизов)
 ├── middlewares/         # access.py (Access Control Middleware)
 ├── llm/                # client.py, prompts.py, parser.py (LM Studio интеграция)
-├── services/           # test_generator.py, answer_checker.py, progress_tracker.py
+├── services/           # test_generator.py, answer_checker.py, progress_tracker.py, notification_service.py
 ├── states/             # registration.py, quiz_states.py
 ├── database/           # crud.py, migrations/init.sql, 002_octodiary.sql, 003_add_quiz_and_access.sql
 ├── utils/              # token_manager.py
@@ -108,6 +108,19 @@ school_bot/
 - Оценки (`/ocenki`) — handler в `handlers/ocenki.py`, callback namespace `ocenki:`
 - Домашние задания (`/dz`) — handler в `handlers/dz.py`, callback namespace `dz:`
 - Оба handler-а используют `profile_id` из `users.mesh_profile_id` (не `person_id` как расписание)
+
+## Уведомления (Фаза 3)
+
+- **APScheduler** (AsyncIOScheduler) — интегрирован в event loop aiogram в `bot.py`
+- Оценки: ежедневно в 18:00 (настройка `GRADES_NOTIFICATION_TIME` в .env)
+- ДЗ: ежедневно в 19:00 (настройка `HOMEWORK_NOTIFICATION_TIME` в .env)
+- Таймзона: `TIMEZONE=Europe/Moscow` (в .env)
+- Сервис: `services/notification_service.py` — ядро уведомлений
+- Handler: `handlers/settings.py` — `/settings`, callback namespace `settings:`
+- Кеш: таблицы `grades_cache`, `homework_cache` с флагом `is_notified` — защита от дубликатов
+- Оценки → только admin/parent. ДЗ → все роли
+- Rate limit: пауза 2.5 сек между пользователями при рассылке
+- TelegramForbiddenError → автоотключение уведомлений для пользователя
 
 ## Важные детали
 

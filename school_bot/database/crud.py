@@ -415,6 +415,194 @@ async def log_activity(user_id: Optional[int], action: str, details: Optional[st
 
 
 # ============================================================================
+# GRADES CACHE (кеш оценок для уведомлений)
+# ============================================================================
+
+async def get_cached_grade_keys(child_id: int) -> set:
+    """Получить множество ключей уже закешированных оценок."""
+    db = get_db()
+    rows = await db.fetchall(
+        "SELECT subject, grade_value, date, lesson_type FROM grades_cache WHERE child_id = ?",
+        (child_id,),
+    )
+    return {(row[0], row[1], str(row[2]), row[3] or "") for row in rows}
+
+
+async def cache_new_grades(child_id: int, grades: List[Dict]) -> int:
+    """
+    Сохранить новые оценки в кеш. Возвращает количество новых.
+
+    grades: список dict с ключами subject, grade_value, date, lesson_type, teacher, comment.
+    """
+    existing = await get_cached_grade_keys(child_id)
+    db = get_db()
+    new_count = 0
+
+    for g in grades:
+        key = (g["subject"], g["grade_value"], str(g["date"]), g.get("lesson_type") or "")
+        if key not in existing:
+            await db.execute(
+                """INSERT INTO grades_cache (child_id, subject, grade_value, date, lesson_type, teacher, comment)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (child_id, g["subject"], g["grade_value"], str(g["date"]),
+                 g.get("lesson_type"), g.get("teacher"), g.get("comment")),
+            )
+            new_count += 1
+
+    return new_count
+
+
+async def get_unnotified_grades(child_id: int) -> List[Dict]:
+    """Получить оценки, о которых ещё не отправлено уведомление."""
+    db = get_db()
+    rows = await db.fetchall(
+        """SELECT grade_id, subject, grade_value, date, lesson_type, comment
+           FROM grades_cache WHERE child_id = ? AND is_notified = 0""",
+        (child_id,),
+    )
+    return [
+        {"grade_id": row[0], "subject": row[1], "grade_value": row[2],
+         "date": row[3], "lesson_type": row[4], "comment": row[5]}
+        for row in rows
+    ]
+
+
+async def mark_grades_notified(grade_ids: List[int]) -> None:
+    """Пометить оценки как отправленные."""
+    if not grade_ids:
+        return
+    db = get_db()
+    placeholders = ",".join("?" * len(grade_ids))
+    await db.execute(
+        f"UPDATE grades_cache SET is_notified = 1 WHERE grade_id IN ({placeholders})",
+        tuple(grade_ids),
+    )
+
+
+# ============================================================================
+# HOMEWORK CACHE (кеш ДЗ для уведомлений)
+# ============================================================================
+
+async def get_cached_homework_keys(child_id: int) -> set:
+    """Получить множество ключей уже закешированных ДЗ."""
+    db = get_db()
+    rows = await db.fetchall(
+        "SELECT subject, assignment, due_date FROM homework_cache WHERE child_id = ?",
+        (child_id,),
+    )
+    return {(row[0], (row[1] or "")[:100], str(row[2])) for row in rows}
+
+
+async def cache_new_homework(child_id: int, homework_list: List[Dict]) -> int:
+    """Сохранить новые ДЗ в кеш. Возвращает количество новых."""
+    existing = await get_cached_homework_keys(child_id)
+    db = get_db()
+    new_count = 0
+
+    for hw in homework_list:
+        key = (hw["subject"], (hw["assignment"] or "")[:100], str(hw["due_date"]))
+        if key not in existing:
+            await db.execute(
+                """INSERT INTO homework_cache (child_id, subject, assignment, due_date)
+                   VALUES (?, ?, ?, ?)""",
+                (child_id, hw["subject"], hw["assignment"], str(hw["due_date"])),
+            )
+            new_count += 1
+
+    return new_count
+
+
+async def get_unnotified_homework(child_id: int) -> List[Dict]:
+    """Получить ДЗ, о которых ещё не отправлено уведомление."""
+    db = get_db()
+    rows = await db.fetchall(
+        """SELECT homework_id, subject, assignment, due_date
+           FROM homework_cache WHERE child_id = ? AND is_notified = 0""",
+        (child_id,),
+    )
+    return [
+        {"homework_id": row[0], "subject": row[1], "assignment": row[2], "due_date": row[3]}
+        for row in rows
+    ]
+
+
+async def mark_homework_notified(homework_ids: List[int]) -> None:
+    """Пометить ДЗ как отправленные."""
+    if not homework_ids:
+        return
+    db = get_db()
+    placeholders = ",".join("?" * len(homework_ids))
+    await db.execute(
+        f"UPDATE homework_cache SET is_notified = 1 WHERE homework_id IN ({placeholders})",
+        tuple(homework_ids),
+    )
+
+
+# ============================================================================
+# NOTIFICATION HELPERS (для рассылки)
+# ============================================================================
+
+async def get_users_with_notifications(notification_type: str) -> List[Dict]:
+    """
+    Получить всех пользователей с включёнными уведомлениями данного типа.
+
+    Для grades — только admin/parent. Для homework — все роли.
+    Только незаблокированные с МЭШ-токеном.
+    """
+    db = get_db()
+
+    role_filter = ""
+    if notification_type == "grades":
+        role_filter = "AND u.role IN ('admin', 'parent')"
+
+    query = f"""
+        SELECT ns.user_id, ns.child_id, ns.notification_time, ns.timezone,
+               u.mesh_profile_id
+        FROM notification_settings ns
+        JOIN users u ON ns.user_id = u.user_id
+        WHERE ns.notification_type = ?
+          AND ns.is_enabled = 1
+          AND (u.is_blocked = 0 OR u.is_blocked IS NULL)
+          AND u.mesh_token IS NOT NULL
+          AND u.mesh_profile_id IS NOT NULL
+          {role_filter}
+    """
+    rows = await db.fetchall(query, (notification_type,))
+    return [
+        {
+            "user_id": row[0],
+            "child_id": row[1],
+            "notification_time": row[2],
+            "timezone": row[3],
+            "profile_id": row[4],
+        }
+        for row in rows
+    ]
+
+
+async def disable_all_notifications(user_id: int) -> None:
+    """Отключить все уведомления (бот заблокирован пользователем в Telegram)."""
+    db = get_db()
+    await db.execute(
+        "UPDATE notification_settings SET is_enabled = 0 WHERE user_id = ?",
+        (user_id,),
+    )
+
+
+async def cleanup_old_cache(days: int = 30) -> None:
+    """Удалить кеш-записи старше N дней."""
+    db = get_db()
+    await db.execute(
+        "DELETE FROM grades_cache WHERE created_at < datetime('now', ?)",
+        (f"-{days} days",),
+    )
+    await db.execute(
+        "DELETE FROM homework_cache WHERE created_at < datetime('now', ?)",
+        (f"-{days} days",),
+    )
+
+
+# ============================================================================
 # ACCESS CONTROL (роли и доступ)
 # ============================================================================
 
