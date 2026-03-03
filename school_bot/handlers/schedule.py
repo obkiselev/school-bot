@@ -9,6 +9,7 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from database.crud import get_user, get_user_children, invalidate_token
+from keyboards.main_menu import home_button
 from mesh_api.client import MeshClient
 from mesh_api.exceptions import AuthenticationError, MeshAPIError
 from mesh_api.models import Lesson
@@ -120,7 +121,8 @@ def _get_period_keyboard(student_id: int) -> InlineKeyboardMarkup:
                 text="\U0001f4c5 Неделя",
                 callback_data=f"sched:period:{student_id}:week"
             ),
-        ]
+        ],
+        [home_button()],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -133,7 +135,8 @@ def _get_retry_keyboard(student_id: int, period: str) -> InlineKeyboardMarkup:
                 text="\U0001f504 Повторить",
                 callback_data=f"sched:retry:{student_id}:{period}"
             )
-        ]
+        ],
+        [home_button()],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -152,7 +155,13 @@ def _get_child_keyboard(children: List[dict]) -> InlineKeyboardMarkup:
                 callback_data=f"sched:child:{child['student_id']}"
             )
         ])
+    buttons.append([home_button()])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _home_only_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура с одной кнопкой «Главное меню»."""
+    return InlineKeyboardMarkup(inline_keyboard=[[home_button()]])
 
 
 def _parse_callback_data(data: str) -> Optional[tuple]:
@@ -300,8 +309,8 @@ async def _handle_schedule_request(
     except AuthenticationError as e:
         logger.error("Ошибка авторизации МЭШ для user_id=%d: %s", user_id, e)
         await callback.message.edit_text(
-            f"\u274c {e}\n\n"
-            "Для перерегистрации нажмите /start"
+            f"\u274c {e}",
+            reply_markup=_home_only_keyboard(),
         )
         return
 
@@ -329,8 +338,8 @@ async def _handle_schedule_request(
         except AuthenticationError as e2:
             logger.error("Повторная авторизация не помогла для user_id=%d: %s", user_id, e2)
             await callback.message.edit_text(
-                f"\u274c {e2}\n\n"
-                "Для перерегистрации нажмите /start"
+                f"\u274c {e2}",
+                reply_markup=_home_only_keyboard(),
             )
     except MeshAPIError as e:
         logger.error("Ошибка API МЭШ для user_id=%d: %s", user_id, e)
@@ -354,7 +363,8 @@ async def cmd_raspisanie(message: Message):
     user = await get_user(user_id)
     if not user:
         await message.answer(
-            "Вы ещё не зарегистрированы. Сначала зарегистрируйтесь: /start"
+            "Вы ещё не зарегистрированы.",
+            reply_markup=_home_only_keyboard(),
         )
         return
 
@@ -362,7 +372,8 @@ async def cmd_raspisanie(message: Message):
     children = await get_user_children(user_id)
     if not children:
         await message.answer(
-            "У вас нет привязанных детей. Пройдите регистрацию: /start"
+            "У вас нет привязанных детей.",
+            reply_markup=_home_only_keyboard(),
         )
         return
 
@@ -389,8 +400,8 @@ async def cmd_raspisanie(message: Message):
     except AuthenticationError as e:
         logger.error("Ошибка авторизации МЭШ для user_id=%d: %s", user_id, e)
         await message.answer(
-            f"\u274c {e}\n\n"
-            "Для перерегистрации нажмите /start"
+            f"\u274c {e}",
+            reply_markup=_home_only_keyboard(),
         )
         return
 
@@ -414,8 +425,8 @@ async def cmd_raspisanie(message: Message):
         except AuthenticationError as e2:
             logger.error("Повторная авторизация не помогла для user_id=%d: %s", user_id, e2)
             await message.answer(
-                f"\u274c {e2}\n\n"
-                "Для перерегистрации нажмите /start"
+                f"\u274c {e2}",
+                reply_markup=_home_only_keyboard(),
             )
     except MeshAPIError as e:
         logger.error("Ошибка API МЭШ для user_id=%d: %s", user_id, e)
@@ -439,14 +450,16 @@ async def cb_menu_raspisanie(callback: CallbackQuery):
     user = await get_user(user_id)
     if not user:
         await callback.message.edit_text(
-            "Вы ещё не зарегистрированы. Сначала зарегистрируйтесь: /start"
+            "Вы ещё не зарегистрированы.",
+            reply_markup=_home_only_keyboard(),
         )
         return
 
     children = await get_user_children(user_id)
     if not children:
         await callback.message.edit_text(
-            "У вас нет привязанных детей. Пройдите регистрацию: /start"
+            "У вас нет привязанных детей.",
+            reply_markup=_home_only_keyboard(),
         )
         return
 

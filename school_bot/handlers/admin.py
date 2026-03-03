@@ -1,14 +1,17 @@
 """Admin commands: /allow, /block, /users."""
 from aiogram import Router
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup
 
 from config import settings
 from database.crud import is_user_allowed, set_user_access, block_user, get_all_users_list
+from keyboards.main_menu import home_button
 
 router = Router()
 
 VALID_ROLES = {"student", "admin", "parent"}
+
+_home_kb = InlineKeyboardMarkup(inline_keyboard=[[home_button()]])
 
 
 async def _check_admin(message: Message) -> bool:
@@ -52,7 +55,10 @@ async def cmd_allow(message: Message):
     await set_user_access(target_id, role)
 
     role_labels = {"student": "📚 ученик", "parent": "👨‍👩‍👧 родитель", "admin": "👑 админ"}
-    await message.answer(f"✅ Пользователь {target_id} добавлен ({role_labels.get(role, role)})")
+    await message.answer(
+        f"✅ Пользователь {target_id} добавлен ({role_labels.get(role, role)})",
+        reply_markup=_home_kb,
+    )
 
 
 @router.message(Command("block"))
@@ -91,7 +97,7 @@ async def cmd_block(message: Message):
         await message.answer("Пользователь не найден в базе.")
         return
 
-    await message.answer(f"🚫 Пользователь {target_id} заблокирован.")
+    await message.answer(f"🚫 Пользователь {target_id} заблокирован.", reply_markup=_home_kb)
 
 
 @router.message(Command("users"))
@@ -113,4 +119,4 @@ async def cmd_users(message: Message):
         role_label = role_labels.get(u["role"], u["role"] or "?")
         lines.append(f"• {name} (ID: {u['user_id']}) — {role_label}, {status}")
 
-    await message.answer("\n".join(lines))
+    await message.answer("\n".join(lines), reply_markup=_home_kb)

@@ -12,7 +12,7 @@ from aiogram.fsm.context import FSMContext
 from config import settings
 from database.crud import user_exists, delete_user, get_user_role, get_user, ensure_quiz_user, set_user_access
 from states.registration import RegistrationStates
-from keyboards.main_menu import parent_menu_keyboard, student_menu_keyboard, admin_menu_keyboard
+from keyboards.main_menu import parent_menu_keyboard, student_menu_keyboard, admin_menu_keyboard, home_button
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -279,6 +279,19 @@ async def cmd_start(message: Message, state: FSMContext):
 
     else:
         await message.answer("❗ Роль не определена. Обратитесь к администратору.")
+
+
+@router.callback_query(F.data.in_({"menu:ocenki", "menu:dz"}))
+async def cb_not_implemented(callback: CallbackQuery):
+    """Заглушка для ещё не реализованных пунктов меню."""
+    labels = {"menu:ocenki": "Оценки", "menu:dz": "Домашние задания"}
+    feature = labels.get(callback.data, "Функция")
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[home_button()]])
+    await callback.message.edit_text(
+        f"🚧 «{feature}» — в разработке.\n\nЭта функция скоро появится!",
+        reply_markup=keyboard,
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data == "go_home")

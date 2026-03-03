@@ -2,6 +2,11 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
+def home_button() -> InlineKeyboardButton:
+    """Reusable 'back to main menu' button for any keyboard."""
+    return InlineKeyboardButton(text="🏠 Главное меню", callback_data="go_home")
+
+
 def parent_menu_keyboard() -> InlineKeyboardMarkup:
     """Menu for parents (МЭШ features)."""
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -37,5 +42,5 @@ def quiz_home_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📝 Пройти тест", callback_data="start_test")],
         [InlineKeyboardButton(text="📈 Мои результаты", callback_data="my_results")],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="go_home")],
+        [home_button()],
     ])
