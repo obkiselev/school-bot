@@ -1,6 +1,6 @@
 # School Bot — Прогресс разработки
 
-## Текущая версия: 0.3.6
+## Текущая версия: 0.3.7
 
 ## Статус: Фаза 4 частично — rate limiting, /help, /profile
 
@@ -82,6 +82,12 @@
 ---
 
 ## Changelog
+
+### v0.3.7 — Очистка: удаление school_helper, организация файлов
+
+- Перенесён старый проект `school_helper` в `E:\backup_old\school_helper` (временный бэкап наработок)
+- Отладочные скриншоты Playwright (debug_*.png, test_*.png) перенесены из `data/` в `tests/screenshots/`
+- Папка `data/` содержит только runtime-данные (БД, логи)
 
 ### v0.3.6 — Фаза 4: Rate limiting + /help + /profile + баг-фиксы
 
