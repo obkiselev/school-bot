@@ -4,7 +4,7 @@ import logging
 import time
 from typing import Optional, Dict, Any, Callable, Awaitable
 
-from octodiary.apis.async_ import AsyncMobileAPI
+from octodiary.apis.async_ import AsyncMobileAPI, AsyncWebAPI
 from octodiary.urls import Systems
 from octodiary.types.enter_sms_code import EnterSmsCode
 from octodiary.exceptions import APIError
@@ -134,6 +134,16 @@ def clear_pending_auth(user_id: int) -> None:
     _pending_auth.pop(user_id, None)
 
 
+def _make_web_api(mobile_api: AsyncMobileAPI) -> AsyncWebAPI:
+    """Создаёт AsyncWebAPI с тем же токеном и прокси что у mobile_api."""
+    web_api = AsyncWebAPI(system=Systems.MES)
+    web_api.token = mobile_api.token
+    proxy = getattr(mobile_api, "_socks_proxy", None)
+    if proxy:
+        web_api._socks_proxy = proxy
+    return web_api
+
+
 async def _finalize_profile_and_children(api: AsyncMobileAPI):
     """Общая логика получения профиля и детей после авторизации.
 
@@ -169,11 +179,12 @@ async def _finalize_profile_and_children(api: AsyncMobileAPI):
             logger.error("Ошибка получения профиля: %s", e)
             raise NetworkError(f"Ошибка получения профиля: {e}")
 
-    # Шаг 1б: fallback для учеников — get_session_info
+    # Шаг 1б: fallback для учеников — get_session_info (AsyncWebAPI)
     session_info = None
     if is_student_fallback or not profile_id:
         try:
-            session_info = await api.get_session_info()
+            web_api = _make_web_api(api)
+            session_info = await web_api.get_session_info()
             if session_info and session_info.profiles:
                 profile_id = session_info.profiles[0].id
                 mes_role = session_info.profiles[0].type
@@ -233,9 +244,10 @@ async def _build_student_child(api: AsyncMobileAPI, profile_id, session_info):
         contingent_guid=session_info.person_id,
     )
 
-    # Обогащаем данными из get_student_profiles (класс, школа)
+    # Обогащаем данными из get_student_profiles (класс, школа) — AsyncWebAPI
     try:
-        student_profiles = await api.get_student_profiles(
+        web_api = _make_web_api(api)
+        student_profiles = await web_api.get_student_profiles(
             profile_id=profile_id,
             profile_type="student",
         )

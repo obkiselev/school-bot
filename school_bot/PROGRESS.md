@@ -1,6 +1,6 @@
 # School Bot — Прогресс разработки
 
-## Текущая версия: 0.3.8
+## Текущая версия: 0.3.9
 
 ## Статус: Фаза 4 частично — rate limiting, /help, /profile, фикс регистрации ученика
 
@@ -83,6 +83,18 @@
 ---
 
 ## Changelog
+
+### v0.3.9 — Фикс: fallback на AsyncWebAPI для ученических аккаунтов
+
+**Проблема:** Fallback v0.3.8 вызывал `get_session_info()` и `get_student_profiles()` на `AsyncMobileAPI`, но эти методы существуют только в `AsyncWebAPI`. Ученики получали: `'AsyncMobileAPI' object has no attribute 'get_session_info'`.
+
+**Решение:**
+- Хелпер `_make_web_api()` — создаёт `AsyncWebAPI` с тем же токеном и прокси
+- Fallback `get_session_info()` → вызов через `AsyncWebAPI`
+- Fallback `get_student_profiles()` → вызов через `AsyncWebAPI`
+
+**Изменённые файлы:**
+- `mesh_api/auth.py` — добавлен `_make_web_api()`, исправлены 2 вызова fallback-методов
 
 ### v0.3.8 — Фикс: регистрация ученических аккаунтов МЭШ (403 access_denied)
 
