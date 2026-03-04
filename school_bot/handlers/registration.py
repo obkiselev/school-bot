@@ -200,13 +200,23 @@ async def _process_auth_success(
     """Обработка успешной авторизации — показ списка детей."""
     token = auth_result["token"]
     children_data = auth_result.get("children", [])
+    mes_role = auth_result.get("mes_role", "")
 
     if not children_data:
-        await verify_msg.edit_text(
-            "В профиле не найдено ни одного ребенка.\n\n"
-            "Убедитесь, что ваш аккаунт привязан к профилю ученика, "
-            "и попробуйте снова: /start"
-        )
+        # Разные сообщения для ученика и родителя
+        is_student = mes_role in ("student", "StudentProfile")
+        if is_student:
+            msg = (
+                "Не удалось получить данные профиля ученика.\n\n"
+                "Попробуйте позже: /start"
+            )
+        else:
+            msg = (
+                "В профиле не найдено ни одного ребенка.\n\n"
+                "Убедитесь, что ваш аккаунт привязан к профилю ученика, "
+                "и попробуйте снова: /start"
+            )
+        await verify_msg.edit_text(msg)
         await state.clear()
         return
 
@@ -236,12 +246,31 @@ async def _process_auth_success(
         mesh_password=password,
         mesh_token=token,
         mesh_profile_id=auth_result.get("profile_id"),
-        mesh_role=auth_result.get("mes_role"),
+        mesh_role=mes_role,
         mesh_refresh_token=_refresh,
         mesh_client_id=_client_id,
         mesh_client_secret=_client_secret,
         students=students,
     )
+
+    # Для ученика с одним профилем — автоматический выбор (без экрана выбора детей)
+    is_student = mes_role in ("student", "StudentProfile")
+    if is_student and len(students) == 1:
+        await state.update_data(
+            selected_student_ids=[students[0].student_id]
+        )
+        student = students[0]
+        name = f"{student.last_name} {student.first_name}"
+        if student.class_name:
+            name += f" ({student.class_name})"
+        await verify_msg.edit_text(
+            f"Вход выполнен успешно!\n\n"
+            f"Профиль: {name}\n\n"
+            "Сохраняю данные..."
+        )
+        # Сохраняем напрямую без шага выбора
+        await _save_registration(message, state, verify_msg)
+        return
 
     await verify_msg.edit_text(
         f"Вход выполнен успешно!\n\n"
@@ -345,6 +374,95 @@ async def toggle_child_selection(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+async def _save_registration(source, state: FSMContext, edit_msg: Message = None):
+    """Сохраняет регистрацию в БД. Вызывается из confirm_children_selection и авто-выбора."""
+    data = await state.get_data()
+    selected_ids = data.get("selected_student_ids", [])
+    user_id = source.from_user.id
+
+    async def _edit(text, **kwargs):
+        if edit_msg:
+            await edit_msg.edit_text(text, **kwargs)
+        else:
+            await source.answer(text, **kwargs)
+
+    try:
+        login = data.get("mesh_login")
+        password = data.get("mesh_password")
+        token = data.get("mesh_token")
+        students = data.get("students", [])
+
+        logger.info(
+            "Сохранение в БД: refresh_token=%s, client_id=%s, client_secret=%s, user_id=%d",
+            "present" if data.get("mesh_refresh_token") else "MISSING",
+            "present" if data.get("mesh_client_id") else "MISSING",
+            "present" if data.get("mesh_client_secret") else "MISSING",
+            user_id,
+        )
+        token_expires_at = (datetime.now() + timedelta(hours=24)).isoformat()
+        await create_user(
+            user_id=user_id,
+            username=source.from_user.username,
+            first_name=source.from_user.first_name,
+            last_name=source.from_user.last_name,
+            mesh_login=login,
+            mesh_password=password,
+            mesh_token=token,
+            token_expires_at=token_expires_at,
+            mesh_refresh_token=data.get("mesh_refresh_token"),
+            mesh_client_id=data.get("mesh_client_id"),
+            mesh_client_secret=data.get("mesh_client_secret"),
+            mesh_profile_id=data.get("mesh_profile_id"),
+            mesh_role=data.get("mesh_role"),
+        )
+
+        added_count = 0
+        for student in students:
+            if student.student_id in selected_ids:
+                child_id = await add_child(
+                    user_id=user_id,
+                    student_id=student.student_id,
+                    first_name=student.first_name,
+                    last_name=student.last_name,
+                    middle_name=student.middle_name,
+                    class_name=student.class_name,
+                    school_name=student.school_name,
+                    person_id=student.person_id,
+                    class_unit_id=student.class_unit_id,
+                )
+                await create_default_notifications(user_id, child_id)
+                added_count += 1
+
+        await log_activity(user_id, "registration", f"Added {added_count} children")
+        await state.clear()
+
+        role = await get_user_role(user_id)
+
+        if role == "student":
+            await _edit(
+                f"Регистрация завершена!\n\n"
+                f"Добавлено детей: {added_count}\n\n"
+                "Теперь тебе доступны расписание и домашние задания.\n"
+                "Выбери, что хочешь сделать:",
+                reply_markup=student_menu_keyboard(),
+            )
+        else:
+            await _edit(
+                f"Регистрация завершена!\n\n"
+                f"Добавлено детей: {added_count}\n\n"
+                "Выберите действие:",
+                reply_markup=full_menu_keyboard(),
+            )
+
+    except Exception as e:
+        logger.error("Ошибка при сохранении регистрации: %s", e)
+        await _edit(
+            f"Ошибка при сохранении: {e}\n\n"
+            "Попробуйте начать заново: /start"
+        )
+        await state.clear()
+
+
 @router.callback_query(
     RegistrationStates.selecting_children,
     F.data == "confirm_children_selection"
@@ -363,90 +481,5 @@ async def confirm_children_selection(callback: CallbackQuery, state: FSMContext)
         "Пожалуйста, подождите."
     )
 
-    # Save user and children to database
-    try:
-        user_id = callback.from_user.id
-        login = data.get("mesh_login")
-        password = data.get("mesh_password")
-        token = data.get("mesh_token")
-        students = data.get("students", [])
-
-        # Create user with OAuth fields
-        logger.info(
-            "Сохранение в БД: refresh_token=%s, client_id=%s, client_secret=%s, user_id=%d",
-            "present" if data.get("mesh_refresh_token") else "MISSING",
-            "present" if data.get("mesh_client_id") else "MISSING",
-            "present" if data.get("mesh_client_secret") else "MISSING",
-            user_id,
-        )
-        token_expires_at = (datetime.now() + timedelta(hours=24)).isoformat()
-        await create_user(
-            user_id=user_id,
-            username=callback.from_user.username,
-            first_name=callback.from_user.first_name,
-            last_name=callback.from_user.last_name,
-            mesh_login=login,
-            mesh_password=password,
-            mesh_token=token,
-            token_expires_at=token_expires_at,
-            mesh_refresh_token=data.get("mesh_refresh_token"),
-            mesh_client_id=data.get("mesh_client_id"),
-            mesh_client_secret=data.get("mesh_client_secret"),
-            mesh_profile_id=data.get("mesh_profile_id"),
-            mesh_role=data.get("mesh_role"),
-        )
-
-        # Add selected children
-        added_count = 0
-        for student in students:
-            if student.student_id in selected_ids:
-                child_id = await add_child(
-                    user_id=user_id,
-                    student_id=student.student_id,
-                    first_name=student.first_name,
-                    last_name=student.last_name,
-                    middle_name=student.middle_name,
-                    class_name=student.class_name,
-                    school_name=student.school_name,
-                    person_id=student.person_id,
-                    class_unit_id=student.class_unit_id,
-                )
-
-                # Create default notifications for this child
-                await create_default_notifications(user_id, child_id)
-
-                added_count += 1
-
-        # Log activity
-        await log_activity(user_id, "registration", f"Added {added_count} children")
-
-        # Clear FSM
-        await state.clear()
-
-        role = await get_user_role(user_id)
-
-        if role == "student":
-            await callback.message.edit_text(
-                f"Регистрация завершена!\n\n"
-                f"Добавлено детей: {added_count}\n\n"
-                "Теперь тебе доступны расписание и домашние задания.\n"
-                "Выбери, что хочешь сделать:",
-                reply_markup=student_menu_keyboard(),
-            )
-        else:
-            await callback.message.edit_text(
-                f"Регистрация завершена!\n\n"
-                f"Добавлено детей: {added_count}\n\n"
-                "Выберите действие:",
-                reply_markup=full_menu_keyboard(),
-            )
-
-    except Exception as e:
-        logger.error("Ошибка при сохранении регистрации: %s", e)
-        await callback.message.edit_text(
-            f"Ошибка при сохранении: {e}\n\n"
-            "Попробуйте начать заново: /start"
-        )
-        await state.clear()
-
+    await _save_registration(callback, state, callback.message)
     await callback.answer()

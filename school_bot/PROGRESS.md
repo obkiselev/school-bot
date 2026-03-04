@@ -1,8 +1,8 @@
 # School Bot — Прогресс разработки
 
-## Текущая версия: 0.3.7
+## Текущая версия: 0.3.8
 
-## Статус: Фаза 4 частично — rate limiting, /help, /profile
+## Статус: Фаза 4 частично — rate limiting, /help, /profile, фикс регистрации ученика
 
 ---
 
@@ -67,6 +67,7 @@
 - [x] /profile — профиль пользователя (маскировка логина, дети, роль)
 - [x] Баг-фикс: get_user() теперь возвращает role и is_blocked
 - [x] Баг-фикс: исправлены тесты TokenManager (MeshClient → MeshAuth)
+- [x] Баг-фикс: регистрация ученических аккаунтов (403 на profile_info → fallback через session_info)
 - [ ] Деплой на VPS
 
 ---
@@ -82,6 +83,23 @@
 ---
 
 ## Changelog
+
+### v0.3.8 — Фикс: регистрация ученических аккаунтов МЭШ (403 access_denied)
+
+**Проблема:** При регистрации ребёнка (ученический аккаунт mos.ru) эндпоинт `profile_info` возвращал 403 — доступен только для родителей/учителей.
+
+**Решение:**
+- Общая функция `_finalize_profile_and_children()` — fallback-логика для всех путей авторизации
+- При 403 на `get_users_profile_info()` → `get_session_info()` (работает для всех типов аккаунтов)
+- При 403 на `get_family_profile()` → `get_student_profiles()` + данные из сессии
+- Автоматический выбор профиля для ученика (пропуск шага "выберите детей")
+- Нормализация ролей: поддержка как "StudentProfile", так и "student"
+
+**Изменённые файлы:**
+- `mesh_api/auth.py` — `_finalize_profile_and_children()`, `_build_student_child()`, рефакторинг `_finalize_auth()`
+- `mesh_api/playwright_auth.py` — переход на общую функцию (убрана дупликация)
+- `mesh_api/client.py` — `get_profile()` использует общую функцию + расширен маппинг ролей
+- `handlers/registration.py` — `_save_registration()` (вынесена общая логика), авто-выбор для ученика
 
 ### v0.3.7 — Очистка: удаление school_helper, организация файлов
 

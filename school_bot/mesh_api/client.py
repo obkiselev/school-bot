@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 _PROFILE_TYPE_TO_ROLE = {
     "ParentProfile": "parent",
     "StudentProfile": "student",
+    "parent": "parent",
+    "student": "student",
 }
 
 
@@ -227,6 +229,9 @@ class MeshClient:
         """
         Получить профиль с детьми.
 
+        Поддерживает как родительские, так и ученические аккаунты.
+        Для учеников используется fallback через get_session_info().
+
         Args:
             token: МЭШ access token
 
@@ -236,28 +241,14 @@ class MeshClient:
         await mesh_api_limiter.acquire()
         self.api.token = token
 
-        try:
-            profiles = await self.api.get_users_profile_info()
-        except Exception as e:
-            logger.error("Ошибка получения профиля: %s", e)
-            raise NetworkError(f"Ошибка получения профиля: {e}")
-
-        if not profiles:
-            return []
-
-        profile_id = profiles[0].id
+        from .auth import _finalize_profile_and_children
+        profile_id, _, children = await _finalize_profile_and_children(self.api)
         self.profile_id = profile_id
 
-        try:
-            family = await self.api.get_family_profile(profile_id=profile_id)
-        except Exception as e:
-            logger.error("Ошибка получения семейного профиля: %s", e)
-            raise NetworkError(f"Ошибка получения семейного профиля: {e}")
-
-        if not family.children:
+        if not children:
             return []
 
-        return [student_from_octodiary(child) for child in family.children]
+        return [student_from_octodiary(child) for child in children]
 
     async def close(self):
         """Закрыть сессию (для совместимости с существующим кодом)."""

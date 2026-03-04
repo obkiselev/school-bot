@@ -134,6 +134,136 @@ def clear_pending_auth(user_id: int) -> None:
     _pending_auth.pop(user_id, None)
 
 
+async def _finalize_profile_and_children(api: AsyncMobileAPI):
+    """Общая логика получения профиля и детей после авторизации.
+
+    Для родительских аккаунтов: get_users_profile_info() + get_family_profile().
+    Для ученических аккаунтов (403 на profile_info): get_session_info() +
+    get_student_profiles() как fallback.
+
+    Args:
+        api: Настроенный AsyncMobileAPI с установленным token и прокси.
+
+    Returns:
+        (profile_id, mes_role, children) — данные профиля и список детей.
+    """
+    profile_id = None
+    mes_role = None
+    is_student_fallback = False
+
+    # Шаг 1: пробуем get_users_profile_info (работает для родителей/учителей)
+    try:
+        profiles = await api.get_users_profile_info()
+        if profiles:
+            profile_id = profiles[0].id
+            mes_role = profiles[0].type
+    except Exception as e:
+        error_str = str(e)
+        if "403" in error_str or "access_denied" in error_str:
+            logger.info(
+                "get_users_profile_info вернул 403 — вероятно ученический аккаунт, "
+                "переключаемся на get_session_info"
+            )
+            is_student_fallback = True
+        else:
+            logger.error("Ошибка получения профиля: %s", e)
+            raise NetworkError(f"Ошибка получения профиля: {e}")
+
+    # Шаг 1б: fallback для учеников — get_session_info
+    session_info = None
+    if is_student_fallback or not profile_id:
+        try:
+            session_info = await api.get_session_info()
+            if session_info and session_info.profiles:
+                profile_id = session_info.profiles[0].id
+                mes_role = session_info.profiles[0].type
+                logger.info(
+                    "get_session_info: profile_id=%s, type=%s",
+                    profile_id, mes_role,
+                )
+            else:
+                raise NetworkError("Профиль не найден в данных сессии")
+        except NetworkError:
+            raise
+        except Exception as e:
+            logger.error("Ошибка получения session_info: %s", e)
+            raise NetworkError(f"Ошибка получения профиля (fallback): {e}")
+
+    if not profile_id:
+        raise AuthenticationError("Профиль не найден")
+
+    # Шаг 2: получаем данные о детях
+    children = []
+    try:
+        family = await api.get_family_profile(profile_id=profile_id)
+        children = family.children or []
+    except Exception as e:
+        if is_student_fallback:
+            # Для ученика get_family_profile тоже может вернуть 403 — это нормально
+            logger.info(
+                "get_family_profile не удался для ученика (ожидаемо): %s, "
+                "строим профиль из session_info + student_profiles",
+                e,
+            )
+        else:
+            logger.error("Ошибка получения семейного профиля: %s", e)
+            raise NetworkError(f"Ошибка получения семейного профиля: {e}")
+
+    # Шаг 3: если children пуст и это ученик — строим из get_student_profiles
+    if not children and is_student_fallback and session_info:
+        children = await _build_student_child(api, profile_id, session_info)
+
+    return profile_id, mes_role, children
+
+
+async def _build_student_child(api: AsyncMobileAPI, profile_id, session_info):
+    """Строит список из одного 'ребёнка' для ученического аккаунта.
+
+    Ученик сам является ребёнком. Собираем Child-объект из данных
+    SessionUserInfo и (опционально) StudentProfile.
+    """
+    from octodiary.types.mobile.family_profile import Child, School
+
+    # Базовые данные из session_info
+    child = Child(
+        id=profile_id,
+        first_name=session_info.first_name,
+        last_name=session_info.last_name,
+        middle_name=session_info.middle_name,
+        contingent_guid=session_info.person_id,
+    )
+
+    # Обогащаем данными из get_student_profiles (класс, школа)
+    try:
+        student_profiles = await api.get_student_profiles(
+            profile_id=profile_id,
+            profile_type="student",
+        )
+        if student_profiles:
+            sp = student_profiles[0] if isinstance(student_profiles, list) else student_profiles
+            child.id = getattr(sp, "id", None) or child.id
+            child.first_name = getattr(sp, "first_name", None) or child.first_name
+            child.last_name = getattr(sp, "last_name", None) or child.last_name
+            child.middle_name = getattr(sp, "middle_name", None) or child.middle_name
+            child.contingent_guid = getattr(sp, "person_id", None) or child.contingent_guid
+            if sp.class_unit:
+                child.class_name = sp.class_unit.name
+                child.class_unit_id = sp.class_unit.id
+            if sp.school_id:
+                child.school = School(id=sp.school_id)
+            logger.info(
+                "StudentProfile: id=%s, class=%s, person_id=%s",
+                sp.id, sp.class_unit.name if sp.class_unit else None,
+                sp.person_id,
+            )
+    except Exception as e:
+        logger.warning(
+            "get_student_profiles не удался (используем базовые данные): %s", e
+        )
+
+    return [child]
+
+
 class MeshAuth:
     """Handles authentication with МЭШ API via OctoDiary."""
 
@@ -306,25 +436,7 @@ class MeshAuth:
         if self._proxy_url:
             self.api._socks_proxy = self._proxy_url
 
-        try:
-            profiles = await self.api.get_users_profile_info()
-        except Exception as e:
-            logger.error("Ошибка получения профиля: %s", e)
-            raise NetworkError(f"Ошибка получения профиля: {e}")
-
-        if not profiles:
-            raise AuthenticationError("Профиль не найден")
-
-        profile_id = profiles[0].id
-        mes_role = profiles[0].type
-
-        try:
-            family = await self.api.get_family_profile(profile_id=profile_id)
-        except Exception as e:
-            logger.error("Ошибка получения семейного профиля: %s", e)
-            raise NetworkError(f"Ошибка получения семейного профиля: {e}")
-
-        children = family.children or []
+        profile_id, mes_role, children = await _finalize_profile_and_children(self.api)
 
         refresh_token = getattr(self.api, "token_for_refresh", None)
         client_id = getattr(self.api, "client_id", None)

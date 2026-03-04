@@ -605,23 +605,8 @@ class PlaywrightMeshAuth:
         except Exception:
             pass
 
-        try:
-            profiles = await api.get_users_profile_info()
-        except Exception as e:
-            logger.error("Playwright: get_users_profile_info: %s", e)
-            raise NetworkError(f"Ошибка получения профиля МЭШ: {e}")
-
-        if not profiles:
-            raise AuthenticationError("Профиль МЭШ не найден")
-
-        profile_id = profiles[0].id
-        mes_role = profiles[0].type
-
-        try:
-            family = await api.get_family_profile(profile_id=profile_id)
-        except Exception as e:
-            logger.error("Playwright: get_family_profile: %s", e)
-            raise NetworkError(f"Ошибка получения семейного профиля: {e}")
+        from .auth import _finalize_profile_and_children
+        profile_id, mes_role, children = await _finalize_profile_and_children(api)
 
         if not self._refresh_token or not self._client_id or not self._client_secret:
             missing = []
@@ -642,7 +627,7 @@ class PlaywrightMeshAuth:
             "token": self._mesh_token,
             "profile_id": profile_id,
             "mes_role": mes_role,
-            "children": family.children or [],
+            "children": children,
             "refresh_token": self._refresh_token,
             "client_id": self._client_id,
             "client_secret": self._client_secret,
