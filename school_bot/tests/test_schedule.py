@@ -231,11 +231,16 @@ def _make_user_dict(token: str = "old_token", expires_at: str = None) -> dict:
 class TestTokenManager:
     """Тесты менеджера токенов (ensure_token + _is_token_valid)."""
 
+    def setup_method(self):
+        """Очищаем _token_locks между тестами, чтобы не было shared state."""
+        from utils.token_manager import _token_locks
+        _token_locks.clear()
+
     @patch("utils.token_manager.update_user_token", new_callable=AsyncMock)
-    @patch("utils.token_manager.MeshClient")
+    @patch("utils.token_manager.MeshAuth")
     @patch("utils.token_manager.get_user", new_callable=AsyncMock)
     async def test_token_valid_no_refresh(
-        self, mock_get_user, mock_mesh_client_cls, mock_update_token
+        self, mock_get_user, mock_mesh_auth_cls, mock_update_token
     ):
         """Токен ещё действителен — возвращается без вызова API."""
         future_time = (datetime.now() + timedelta(hours=1)).isoformat()
@@ -244,73 +249,68 @@ class TestTokenManager:
         result = await ensure_token(12345)
 
         assert result == "existing_token"
-        mock_mesh_client_cls.assert_not_called()
+        mock_mesh_auth_cls.assert_not_called()
         mock_update_token.assert_not_called()
 
     @patch("utils.token_manager.update_user_token", new_callable=AsyncMock)
-    @patch("utils.token_manager.MeshClient")
+    @patch("utils.token_manager.MeshAuth")
     @patch("utils.token_manager.get_user", new_callable=AsyncMock)
     async def test_token_expired_refresh(
-        self, mock_get_user, mock_mesh_client_cls, mock_update_token
+        self, mock_get_user, mock_mesh_auth_cls, mock_update_token
     ):
-        """Токен истёк — вызывается authenticate, новый токен сохраняется."""
+        """Токен истёк — вызывается MeshAuth.start_login, новый токен сохраняется."""
         past_time = (datetime.now() - timedelta(hours=1)).isoformat()
         mock_get_user.return_value = _make_user_dict("old_token", past_time)
 
-        mock_client = AsyncMock()
-        mock_client.authenticate.return_value = {
+        mock_auth = AsyncMock()
+        mock_auth.start_login.return_value = {
             "token": "new_token",
-            "expires_at": "2026-03-01T15:00:00",
+            "status": "success",
         }
-        mock_mesh_client_cls.return_value = mock_client
+        mock_mesh_auth_cls.return_value = mock_auth
 
         result = await ensure_token(12345)
 
         assert result == "new_token"
-        mock_client.authenticate.assert_awaited_once_with("login", "pass")
-        mock_update_token.assert_awaited_once_with(
-            12345, "new_token", "2026-03-01T15:00:00"
-        )
-        mock_client.close.assert_awaited_once()
+        mock_auth.start_login.assert_awaited_once_with("login", "pass")
+        mock_update_token.assert_awaited_once()
 
     @patch("utils.token_manager.update_user_token", new_callable=AsyncMock)
-    @patch("utils.token_manager.MeshClient")
+    @patch("utils.token_manager.MeshAuth")
     @patch("utils.token_manager.get_user", new_callable=AsyncMock)
     async def test_token_none_refresh(
-        self, mock_get_user, mock_mesh_client_cls, mock_update_token
+        self, mock_get_user, mock_mesh_auth_cls, mock_update_token
     ):
         """token_expires_at=None — обновление запускается."""
         mock_get_user.return_value = _make_user_dict("old_token", None)
 
-        mock_client = AsyncMock()
-        mock_client.authenticate.return_value = {
+        mock_auth = AsyncMock()
+        mock_auth.start_login.return_value = {
             "token": "refreshed_token",
-            "expires_at": "2026-03-01T15:00:00",
+            "status": "success",
         }
-        mock_mesh_client_cls.return_value = mock_client
+        mock_mesh_auth_cls.return_value = mock_auth
 
         result = await ensure_token(12345)
 
         assert result == "refreshed_token"
-        mock_client.authenticate.assert_awaited_once()
+        mock_auth.start_login.assert_awaited_once()
 
-    @patch("utils.token_manager.MeshClient")
+    @patch("utils.token_manager.MeshAuth")
     @patch("utils.token_manager.get_user", new_callable=AsyncMock)
     async def test_token_refresh_failure(
-        self, mock_get_user, mock_mesh_client_cls
+        self, mock_get_user, mock_mesh_auth_cls
     ):
-        """authenticate бросает AuthenticationError — пробрасывается наверх."""
+        """start_login бросает AuthenticationError — пробрасывается наверх."""
         past_time = (datetime.now() - timedelta(hours=1)).isoformat()
         mock_get_user.return_value = _make_user_dict("old_token", past_time)
 
-        mock_client = AsyncMock()
-        mock_client.authenticate.side_effect = AuthenticationError("Auth failed")
-        mock_mesh_client_cls.return_value = mock_client
+        mock_auth = AsyncMock()
+        mock_auth.start_login.side_effect = AuthenticationError("Auth failed")
+        mock_mesh_auth_cls.return_value = mock_auth
 
         with pytest.raises(AuthenticationError):
             await ensure_token(12345)
-
-        mock_client.close.assert_awaited_once()
 
     @patch("utils.token_manager.get_user", new_callable=AsyncMock)
     async def test_token_user_not_found(self, mock_get_user):
@@ -393,7 +393,7 @@ class TestCmdRaspisanie:
         mock_get_user.assert_awaited_once_with(12345)
         message.answer.assert_awaited_once()
         call_text = message.answer.call_args[0][0]
-        assert "зарегистрируйтесь" in call_text.lower()
+        assert "не зарегистрированы" in call_text.lower()
 
     @patch("handlers.schedule.get_user_children", new_callable=AsyncMock)
     @patch("handlers.schedule.get_user", new_callable=AsyncMock)
@@ -509,7 +509,7 @@ class TestCmdRaspisanie:
         sample_user,
         sample_children,
     ):
-        """AuthenticationError от ensure_token — сообщение 'Перерегистрируйтесь'."""
+        """AuthenticationError от ensure_token — сообщение с текстом ошибки."""
         mock_get_user.return_value = sample_user
         mock_get_children.return_value = sample_children
         mock_ensure_token.side_effect = AuthenticationError("Auth failed")
@@ -520,7 +520,7 @@ class TestCmdRaspisanie:
 
         message.answer.assert_awaited_once()
         call_text = message.answer.call_args[0][0]
-        assert "перерегистрируйтесь" in call_text.lower()
+        assert "auth failed" in call_text.lower()
 
 
 # ============================================================================

@@ -15,7 +15,8 @@ def full_menu_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📝 Домашние задания", callback_data="menu:dz")],
         [InlineKeyboardButton(text="🎓 Пройти тест", callback_data="start_test")],
         [InlineKeyboardButton(text="📈 Результаты тестов", callback_data="my_results")],
-        [InlineKeyboardButton(text="⚙️ Настройки", callback_data="menu:settings")],
+        [InlineKeyboardButton(text="👤 Профиль", callback_data="menu:profile"),
+         InlineKeyboardButton(text="⚙️ Настройки", callback_data="menu:settings")],
         [InlineKeyboardButton(text="🔄 Перерегистрировать МЭШ", callback_data="reregister")],
     ])
 
@@ -27,7 +28,8 @@ def student_menu_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📝 Домашние задания", callback_data="menu:dz")],
         [InlineKeyboardButton(text="🎓 Пройти тест", callback_data="start_test")],
         [InlineKeyboardButton(text="📈 Результаты тестов", callback_data="my_results")],
-        [InlineKeyboardButton(text="⚙️ Настройки", callback_data="menu:settings")],
+        [InlineKeyboardButton(text="👤 Профиль", callback_data="menu:profile"),
+         InlineKeyboardButton(text="⚙️ Настройки", callback_data="menu:settings")],
         [InlineKeyboardButton(text="🔄 Перерегистрировать МЭШ", callback_data="reregister")],
     ])
 

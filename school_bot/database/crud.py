@@ -94,7 +94,8 @@ async def get_user(user_id: int) -> Optional[Dict]:
                mesh_login, mesh_password, mesh_token, token_expires_at,
                last_sync, is_active,
                mesh_refresh_token, mesh_client_id, mesh_client_secret,
-               mesh_profile_id, mesh_role
+               mesh_profile_id, mesh_role,
+               role, is_blocked
         FROM users WHERE user_id = ?
     """
     row = await db.fetchone(query, (user_id,))
@@ -120,6 +121,8 @@ async def get_user(user_id: int) -> Optional[Dict]:
         "mesh_client_secret": decrypt(row[13]) if row[13] else None,
         "mesh_profile_id": row[14],
         "mesh_role": row[15],
+        "role": row[16],
+        "is_blocked": row[17],
     }
 
 

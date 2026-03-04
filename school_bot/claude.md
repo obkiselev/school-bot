@@ -88,14 +88,14 @@ school_bot/
 ├── config.py           # Настройки (pydantic-settings)
 ├── core/               # database.py, encryption.py
 ├── mesh_api/           # auth.py, client.py, endpoints.py, models.py, exceptions.py, proxy_patch.py
-├── handlers/           # start.py, registration.py, schedule.py, ocenki.py, dz.py, admin.py, quiz.py, language.py, topic.py, quiz_settings.py, history.py, settings.py
+├── handlers/           # start.py, registration.py, schedule.py, ocenki.py, dz.py, admin.py, quiz.py, language.py, topic.py, quiz_settings.py, history.py, settings.py, profile.py
 ├── keyboards/          # main_menu.py (меню по ролям), quiz_kb.py (клавиатуры квизов)
-├── middlewares/         # access.py (Access Control Middleware)
+├── middlewares/         # access.py (Access Control), throttle.py (Anti-spam)
 ├── llm/                # client.py, prompts.py, parser.py (LM Studio интеграция)
 ├── services/           # test_generator.py, answer_checker.py, progress_tracker.py, notification_service.py
 ├── states/             # registration.py, quiz_states.py
 ├── database/           # crud.py, migrations/init.sql, 002_octodiary.sql, 003_add_quiz_and_access.sql
-├── utils/              # token_manager.py
+├── utils/              # token_manager.py, rate_limiter.py
 ├── tests/              # test_schedule.py, conftest.py
 └── data/               # SQLite БД, логи
 ```

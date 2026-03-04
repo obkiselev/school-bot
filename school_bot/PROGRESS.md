@@ -1,8 +1,8 @@
 # School Bot — Прогресс разработки
 
-## Текущая версия: 0.3.5
+## Текущая версия: 0.3.6
 
-## Статус: Фаза 3 ЗАВЕРШЕНА — уведомления и настройки
+## Статус: Фаза 4 частично — rate limiting, /help, /profile
 
 ---
 
@@ -59,11 +59,14 @@
 - [x] Очистка старого кеша (еженедельно, воскресенье 03:00)
 - [x] Обработка ошибок: TelegramForbiddenError → отключение уведомлений, rate limit МЭШ API
 
-## Фаза 4: Production — В ПЛАНАХ
+## Фаза 4: Production — В РАБОТЕ
 
 - [x] Логирование (RotatingFileHandler) — реализовано в v0.2.3
-- [ ] Rate limiting
-- [ ] /help и /profile
+- [x] Rate limiting — глобальный token-bucket для МЭШ API + per-user throttle middleware
+- [x] /help — справка по командам (по роли)
+- [x] /profile — профиль пользователя (маскировка логина, дети, роль)
+- [x] Баг-фикс: get_user() теперь возвращает role и is_blocked
+- [x] Баг-фикс: исправлены тесты TokenManager (MeshClient → MeshAuth)
 - [ ] Деплой на VPS
 
 ---
@@ -71,7 +74,6 @@
 ## Известные баги и проблемы
 
 - МЭШ API через OctoDiary — при обновлении библиотеки могут сломаться типы данных
-- Тесты нужно обновить под новое API (старые моки не работают)
 - mos.ru может обнаружить автоматизацию и сбросить пароль (v0.2.2 снижает риск)
 - LLM (LM Studio) должен быть запущен локально для работы квизов
 - **curl_cffi TLS таймаут через SSH-туннель**: TCP pre-check прокси проходит (OK), но TLS-соединение с mos.ru зависает 15с и отваливается. Возможные причины: SSH-сервер блокирует HTTPS к mos.ru, mos.ru блокирует IP сервера, или MTU/фрагментация мешает TLS-handshake. Пока обходим через Playwright fallback.
@@ -80,6 +82,46 @@
 ---
 
 ## Changelog
+
+### v0.3.6 — Фаза 4: Rate limiting + /help + /profile + баг-фиксы
+
+**Rate Limiting (два уровня):**
+- Глобальный token-bucket для МЭШ API (`utils/rate_limiter.py`) — 30 запросов/мин, позволяет burst
+- Per-user throttle middleware (`middlewares/throttle.py`) — 2 сек между запросами, защита от спама
+- ADMIN_ID и активные FSM-состояния — без ограничений
+- Ручные `asyncio.sleep(2.5)` в notification_service.py заменены на централизованный лимитер
+
+**Команда /help:**
+- Справка по доступным командам в зависимости от роли (admin/parent/student)
+- Для неавторизованных пользователей — минимальная справка
+- Кнопка «Главное меню» для возврата
+
+**Команда /profile:**
+- Профиль пользователя: имя, username, ID, роль, дата регистрации
+- Логин МЭШ замаскирован (`us***@example.com`)
+- Список привязанных детей с классами
+- Кнопка «Профиль» в главном меню (inline, рядом с настройками)
+- Команда `/profile` в Telegram Menu для всех ролей
+
+**Баг-фиксы:**
+- `get_user()` теперь возвращает `role` и `is_blocked` — добавлены в SELECT
+- Тесты TokenManager: `MeshClient` → `MeshAuth` (правильный мок), `authenticate` → `start_login`
+- Тесты schedule handler: обновлены проверки текста ошибок под реальные сообщения
+- 30 тестов — все проходят
+
+**Новые файлы:**
+- `utils/rate_limiter.py` — глобальный async token-bucket rate limiter
+- `middlewares/throttle.py` — per-user flood control middleware
+- `handlers/profile.py` — обработчик /profile + callback menu:profile
+
+**Изменённые файлы:**
+- `mesh_api/client.py` — `await mesh_api_limiter.acquire()` перед каждым API-вызовом
+- `services/notification_service.py` — удалены ручные `asyncio.sleep(2.5)`
+- `bot.py` — регистрация ThrottleMiddleware и profile router
+- `handlers/start.py` — добавлен cmd_help + /profile в _set_user_commands
+- `keyboards/main_menu.py` — кнопка «Профиль» в full_menu и student_menu
+- `database/crud.py` — get_user() включает role и is_blocked
+- `tests/test_schedule.py` — исправлены моки TokenManager и тексты ошибок
 
 ### v0.3.5 — Фаза 3: Уведомления — APScheduler + /settings + кеширование
 

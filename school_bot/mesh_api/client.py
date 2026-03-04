@@ -14,6 +14,7 @@ from .models import (
     student_from_octodiary, lesson_from_event,
     grade_from_payload, homework_from_payload,
 )
+from utils.rate_limiter import mesh_api_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,7 @@ class MeshClient:
         Returns:
             Список уроков, отсортированный по времени
         """
+        await mesh_api_limiter.acquire()
         self.api.token = token
         normalized_role = _normalize_mes_role(mes_role)
 
@@ -136,6 +138,7 @@ class MeshClient:
         Returns:
             Список оценок
         """
+        await mesh_api_limiter.acquire()
         self.api.token = token
         pid = profile_id or self.profile_id
 
@@ -188,6 +191,7 @@ class MeshClient:
         Returns:
             Список домашних заданий
         """
+        await mesh_api_limiter.acquire()
         self.api.token = token
         pid = profile_id or self.profile_id
 
@@ -229,6 +233,7 @@ class MeshClient:
         Returns:
             Список Student (детей)
         """
+        await mesh_api_limiter.acquire()
         self.api.token = token
 
         try:

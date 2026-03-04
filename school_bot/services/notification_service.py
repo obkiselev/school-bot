@@ -36,10 +36,6 @@ logger = logging.getLogger(__name__)
 # Глобальная ссылка на bot (инициализируется в init_scheduler)
 _bot: Optional[Bot] = None
 
-# Пауза между запросами к МЭШ API (rate limit: 30/мин)
-_API_DELAY_SEC = 2.5
-
-
 def init_scheduler(bot: Bot) -> AsyncIOScheduler:
     """Создать и настроить планировщик уведомлений."""
     global _bot
@@ -108,7 +104,6 @@ async def _send_grades_notifications():
             logger.error("Уведомления: ошибка оценок для user_id=%d: %s", user_id, e)
             error_count += 1
 
-        await asyncio.sleep(_API_DELAY_SEC)
 
     logger.info("Уведомления: оценки — обработано %d, ошибок %d", sent_count, error_count)
 
@@ -174,7 +169,6 @@ async def _process_grades_for_user(user_id: int, subs: list):
             child_name = f"{child['first_name']} {child['last_name']}"
             all_new_grades.append((child_name, unnotified))
 
-        await asyncio.sleep(_API_DELAY_SEC)
 
     # Отправляем уведомление
     if all_new_grades:
@@ -218,7 +212,6 @@ async def _send_homework_notifications():
             logger.error("Уведомления: ошибка ДЗ для user_id=%d: %s", user_id, e)
             error_count += 1
 
-        await asyncio.sleep(_API_DELAY_SEC)
 
     logger.info("Уведомления: ДЗ — обработано %d, ошибок %d", sent_count, error_count)
 
@@ -279,7 +272,6 @@ async def _process_homework_for_user(user_id: int, subs: list):
             child_name = f"{child['first_name']} {child['last_name']}"
             all_new_hw.append((child_name, unnotified))
 
-        await asyncio.sleep(_API_DELAY_SEC)
 
     if all_new_hw:
         text = _format_homework_notification(all_new_hw)

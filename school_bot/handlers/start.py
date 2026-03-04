@@ -37,6 +37,7 @@ async def _set_user_commands(bot, user_id: int, role: str):
             BotCommand(command="ocenki", description="Оценки"),
             BotCommand(command="dz", description="Домашние задания"),
             BotCommand(command="test", description="Пройти тест"),
+            BotCommand(command="profile", description="Мой профиль"),
             BotCommand(command="settings", description="Настройки уведомлений"),
             BotCommand(command="allow", description="Добавить пользователя"),
             BotCommand(command="block", description="Заблокировать пользователя"),
@@ -50,6 +51,7 @@ async def _set_user_commands(bot, user_id: int, role: str):
             BotCommand(command="ocenki", description="Оценки"),
             BotCommand(command="dz", description="Домашние задания"),
             BotCommand(command="test", description="Пройти тест"),
+            BotCommand(command="profile", description="Мой профиль"),
             BotCommand(command="settings", description="Настройки уведомлений"),
             BotCommand(command="help", description="Справка"),
         ]
@@ -59,6 +61,7 @@ async def _set_user_commands(bot, user_id: int, role: str):
             BotCommand(command="raspisanie", description="Расписание уроков"),
             BotCommand(command="dz", description="Домашние задания"),
             BotCommand(command="test", description="Пройти тест"),
+            BotCommand(command="profile", description="Мой профиль"),
             BotCommand(command="settings", description="Настройки уведомлений"),
             BotCommand(command="help", description="Справка"),
         ]
@@ -71,6 +74,47 @@ async def _set_user_commands(bot, user_id: int, role: str):
         await bot.set_my_commands(commands, scope=BotCommandScopeChat(chat_id=user_id))
     except Exception as e:
         logger.warning("Failed to set commands for user %d: %s", user_id, e)
+
+
+@router.message(Command("help"))
+async def cmd_help(message: Message):
+    """Справка по доступным командам."""
+    user_id = message.from_user.id
+    role = await get_user_role(user_id)
+
+    if not role:
+        await message.answer(
+            "<b>Справка</b>\n\n"
+            "/start — Начать работу с ботом\n\n"
+            "Для получения доступа обратитесь к администратору.",
+            parse_mode="HTML",
+        )
+        return
+
+    lines = [
+        "<b>Доступные команды</b>\n",
+        "/start — Главное меню",
+        "/raspisanie — Расписание уроков",
+        "/dz — Домашние задания",
+        "/test — Пройти тест по языку",
+        "/settings — Настройки уведомлений",
+        "/profile — Мой профиль",
+        "/help — Справка (эта страница)",
+    ]
+
+    if role in ("admin", "parent"):
+        lines.append("/ocenki — Оценки")
+
+    if role == "admin":
+        lines.append("\n<b>Команды администратора</b>")
+        lines.append("/allow &lt;id&gt; [student|parent|admin] — Добавить пользователя")
+        lines.append("/block &lt;id&gt; — Заблокировать пользователя")
+        lines.append("/users — Список пользователей")
+
+    lines.append("\n<i>Используйте кнопки меню для удобной навигации.</i>")
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[[home_button()]])
+    await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=kb)
 
 
 @router.message(Command("testauth"))

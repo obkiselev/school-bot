@@ -21,7 +21,9 @@ import mesh_api.proxy_patch  # noqa: F401 — патч OctoDiary для SOCKS5 �
 from handlers import start, registration, schedule, ocenki, dz
 from handlers import quiz, language, topic, quiz_settings, history, admin
 from handlers import settings as settings_handler
+from handlers import profile as profile_handler
 from middlewares.access import AccessControlMiddleware
+from middlewares.throttle import ThrottleMiddleware
 from services.notification_service import init_scheduler
 
 
@@ -316,6 +318,10 @@ async def main():
     dp.message.middleware(AccessControlMiddleware())
     dp.callback_query.middleware(AccessControlMiddleware())
 
+    # Throttle middleware (защита от спама)
+    dp.message.middleware(ThrottleMiddleware())
+    dp.callback_query.middleware(ThrottleMiddleware())
+
     # Register routers
     dp.include_router(start.router)
     dp.include_router(registration.router)
@@ -329,6 +335,7 @@ async def main():
     dp.include_router(quiz.router)
     dp.include_router(history.router)
     dp.include_router(settings_handler.router)
+    dp.include_router(profile_handler.router)
 
     logger.info("Bot handlers registered successfully")
 
