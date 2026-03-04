@@ -595,6 +595,9 @@ class PlaywrightMeshAuth:
 
         api = AsyncMobileAPI(system=Systems.MES)
         api.token = self._mesh_token
+        # mos_access_token нужен для WebAPI fallback (get_session_info для учеников)
+        if self._mos_access_token:
+            api.mos_access_token = self._mos_access_token
 
         # SOCKS5 прокси для API-вызовов (dnevnik.mos.ru не доступен напрямую)
         try:

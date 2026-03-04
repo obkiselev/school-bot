@@ -135,9 +135,22 @@ def clear_pending_auth(user_id: int) -> None:
 
 
 def _make_web_api(mobile_api: AsyncMobileAPI) -> AsyncWebAPI:
-    """Создаёт AsyncWebAPI с тем же токеном и прокси что у mobile_api."""
+    """Создаёт AsyncWebAPI с mos_access_token (OAuth) и прокси.
+
+    WebAPI (dnevnik.mos.ru) требует mos_access_token, а не mesh_access_token.
+    mesh_access_token — мобильный токен, который WebAPI не принимает (401).
+    """
     web_api = AsyncWebAPI(system=Systems.MES)
-    web_api.token = mobile_api.token
+    mos_token = getattr(mobile_api, "mos_access_token", None)
+    if mos_token:
+        logger.info("_make_web_api: используем mos_access_token для WebAPI")
+        web_api.token = mos_token
+    else:
+        logger.warning(
+            "_make_web_api: mos_access_token недоступен, fallback на mesh_token "
+            "(WebAPI вызовы могут завершиться с 401)"
+        )
+        web_api.token = mobile_api.token
     proxy = getattr(mobile_api, "_socks_proxy", None)
     if proxy:
         web_api._socks_proxy = proxy
