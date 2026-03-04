@@ -135,22 +135,9 @@ def clear_pending_auth(user_id: int) -> None:
 
 
 def _make_web_api(mobile_api: AsyncMobileAPI) -> AsyncWebAPI:
-    """Создаёт AsyncWebAPI с mos_access_token (OAuth) и прокси.
-
-    WebAPI (dnevnik.mos.ru) требует mos_access_token, а не mesh_access_token.
-    mesh_access_token — мобильный токен, который WebAPI не принимает (401).
-    """
+    """Создаёт AsyncWebAPI с тем же токеном и прокси что у mobile_api."""
     web_api = AsyncWebAPI(system=Systems.MES)
-    mos_token = getattr(mobile_api, "mos_access_token", None)
-    if mos_token:
-        logger.info("_make_web_api: используем mos_access_token для WebAPI")
-        web_api.token = mos_token
-    else:
-        logger.warning(
-            "_make_web_api: mos_access_token недоступен, fallback на mesh_token "
-            "(WebAPI вызовы могут завершиться с 401)"
-        )
-        web_api.token = mobile_api.token
+    web_api.token = mobile_api.token
     proxy = getattr(mobile_api, "_socks_proxy", None)
     if proxy:
         web_api._socks_proxy = proxy
@@ -161,7 +148,7 @@ async def _finalize_profile_and_children(api: AsyncMobileAPI):
     """Общая логика получения профиля и детей после авторизации.
 
     Для родительских аккаунтов: get_users_profile_info() + get_family_profile().
-    Для ученических аккаунтов (403 на profile_info): get_session_info() +
+    Для ученических аккаунтов (403 на profile_info): get_user_info() +
     get_student_profiles() как fallback.
 
     Args:
@@ -185,32 +172,29 @@ async def _finalize_profile_and_children(api: AsyncMobileAPI):
         if "403" in error_str or "access_denied" in error_str:
             logger.info(
                 "get_users_profile_info вернул 403 — вероятно ученический аккаунт, "
-                "переключаемся на get_session_info"
+                "переключаемся на get_user_info"
             )
             is_student_fallback = True
         else:
             logger.error("Ошибка получения профиля: %s", e)
             raise NetworkError(f"Ошибка получения профиля: {e}")
 
-    # Шаг 1б: fallback для учеников — get_session_info (AsyncWebAPI)
-    session_info = None
+    # Шаг 1б: fallback для учеников — get_user_info (school.mos.ru/v3/userinfo)
+    # get_session_info (dnevnik.mos.ru) не работает с mesh_access_token (401),
+    # а get_user_info на school.mos.ru принимает тот же токен.
+    user_info = None
     if is_student_fallback or not profile_id:
         try:
             web_api = _make_web_api(api)
-            session_info = await web_api.get_session_info()
-            if session_info and session_info.profiles:
-                profile_id = session_info.profiles[0].id
-                mes_role = session_info.profiles[0].type
-                logger.info(
-                    "get_session_info: profile_id=%s, type=%s",
-                    profile_id, mes_role,
-                )
-            else:
-                raise NetworkError("Профиль не найден в данных сессии")
-        except NetworkError:
-            raise
+            user_info = await web_api.get_user_info()
+            profile_id = user_info.saved_choice or user_info.user_id
+            mes_role = "student"
+            logger.info(
+                "get_user_info: profile_id=%s (saved_choice=%s, user_id=%s)",
+                profile_id, user_info.saved_choice, user_info.user_id,
+            )
         except Exception as e:
-            logger.error("Ошибка получения session_info: %s", e)
+            logger.error("Ошибка получения user_info: %s", e)
             raise NetworkError(f"Ошибка получения профиля (fallback): {e}")
 
     if not profile_id:
@@ -226,7 +210,7 @@ async def _finalize_profile_and_children(api: AsyncMobileAPI):
             # Для ученика get_family_profile тоже может вернуть 403 — это нормально
             logger.info(
                 "get_family_profile не удался для ученика (ожидаемо): %s, "
-                "строим профиль из session_info + student_profiles",
+                "строим профиль из user_info + student_profiles",
                 e,
             )
         else:
@@ -234,27 +218,28 @@ async def _finalize_profile_and_children(api: AsyncMobileAPI):
             raise NetworkError(f"Ошибка получения семейного профиля: {e}")
 
     # Шаг 3: если children пуст и это ученик — строим из get_student_profiles
-    if not children and is_student_fallback and session_info:
-        children = await _build_student_child(api, profile_id, session_info)
+    if not children and is_student_fallback and user_info:
+        children = await _build_student_child(api, profile_id, user_info)
 
     return profile_id, mes_role, children
 
 
-async def _build_student_child(api: AsyncMobileAPI, profile_id, session_info):
+async def _build_student_child(api: AsyncMobileAPI, profile_id, user_info):
     """Строит список из одного 'ребёнка' для ученического аккаунта.
 
     Ученик сам является ребёнком. Собираем Child-объект из данных
-    SessionUserInfo и (опционально) StudentProfile.
+    UserInfo (school.mos.ru/v3/userinfo) и (опционально) StudentProfile.
     """
     from octodiary.types.mobile.family_profile import Child, School
 
-    # Базовые данные из session_info
+    # Базовые данные из user_info
+    info = user_info.info
     child = Child(
         id=profile_id,
-        first_name=session_info.first_name,
-        last_name=session_info.last_name,
-        middle_name=session_info.middle_name,
-        contingent_guid=session_info.person_id,
+        first_name=info.first_name if info else None,
+        last_name=info.last_name if info else None,
+        middle_name=info.middle_name if info else None,
+        contingent_guid=info.guid if info else None,  # guid = person_id
     )
 
     # Обогащаем данными из get_student_profiles (класс, школа) — AsyncWebAPI

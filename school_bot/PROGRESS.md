@@ -84,21 +84,21 @@
 
 ## Changelog
 
-### v0.4.0 — Фикс: 401 при регистрации ученика (mos_access_token для WebAPI)
+### v0.4.0 — Фикс: 401 при регистрации ученика (get_user_info вместо get_session_info)
 
-**Проблема:** При регистрации ученического аккаунта МЭШ fallback `get_session_info()` возвращал 401 — `mesh_access_token` (мобильный токен) не принимается WebAPI эндпоинтом `dnevnik.mos.ru/lms/api/sessions`.
+**Проблема:** При регистрации ученического аккаунта МЭШ fallback `get_session_info()` возвращал 401 — эндпоинт `dnevnik.mos.ru/lms/api/sessions` не принимает `mesh_access_token`.
 
-**Причина:** `_make_web_api()` копировал мобильный токен (`mesh_access_token`) в WebAPI, но WebAPI требует OAuth-токен (`mos_access_token`) с mos.ru.
+**Причина:** `mesh_access_token` выдан `school.mos.ru`, но `get_session_info()` обращается к `dnevnik.mos.ru` — другой домен, другая сессия. Через Playwright `mos_access_token` недоступен (серверный обмен).
 
 **Решение:**
-- Патч OctoDiary `async_.py` — сохраняем `mos_access_token` при логине и refresh (3 места)
-- `_make_web_api()` в `mesh_api/auth.py` — используем `mos_access_token` для WebAPI (fallback на mesh_token если недоступен)
-- `mesh_api/playwright_auth.py` — передаём `mos_access_token` на API объект для student fallback
+- Заменён `get_session_info()` (dnevnik.mos.ru) на `get_user_info()` (school.mos.ru/v3/userinfo)
+- `get_user_info()` принимает `mesh_access_token` (тот же домен) и возвращает profile_id, имя, роли
+- `_build_student_child()` обновлён для работы с UserInfo вместо SessionUserInfo
 
 **Изменённые файлы:**
-- `E:\Python311\Lib\site-packages\octodiary\apis\async_.py` — +3 строки: `self.mos_access_token = access_token`
-- `mesh_api/auth.py` — переписан `_make_web_api()` (~15 строк)
-- `mesh_api/playwright_auth.py` — +2 строки: передача mos_access_token
+- `mesh_api/auth.py` — fallback через `get_user_info()`, обновлён `_build_student_child()`
+- `mesh_api/playwright_auth.py` — убрана передача mos_access_token (не нужен)
+- OctoDiary `async_.py` — откачен патч mos_access_token (не используется)
 
 ### v0.3.9 — Фикс: fallback на AsyncWebAPI для ученических аккаунтов
 
