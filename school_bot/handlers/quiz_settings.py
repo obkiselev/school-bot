@@ -44,11 +44,16 @@ async def count_selected(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
+    # Load user's gamification theme
+    from database.crud import get_user_theme
+    theme_key = await get_user_theme(callback.from_user.id)
+
     await state.update_data(
         questions=questions,
         current_index=0,
         correct_count=0,
         answers=[],
         user_id=callback.from_user.id,
+        theme_key=theme_key,
     )
     await start_quiz(callback.message, state)

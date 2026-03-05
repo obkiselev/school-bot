@@ -9,8 +9,11 @@ from database.crud import (
     toggle_notification,
     create_default_notifications,
     get_user_role,
+    get_user_theme,
+    set_user_theme,
 )
 from keyboards.main_menu import home_button
+from services.gamification import THEMES
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -40,6 +43,10 @@ def _settings_keyboard(settings_list: list, role: str) -> InlineKeyboardMarkup:
         callback = f"settings:toggle:{ntype}"
         buttons.append([InlineKeyboardButton(text=text, callback_data=callback)])
 
+    buttons.append([InlineKeyboardButton(
+        text="\U0001f3a8 \u0422\u0435\u043c\u0430 \u043e\u0444\u043e\u0440\u043c\u043b\u0435\u043d\u0438\u044f",
+        callback_data="settings:theme",
+    )])
     buttons.append([home_button()])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -112,3 +119,64 @@ async def cb_toggle_notification(callback: CallbackQuery):
     # Показать обновлённое меню
     role = await get_user_role(user_id) or "student"
     await _show_settings(user_id, role, edit_message=callback.message)
+
+
+# ============================================================================
+# THEME SELECTION
+# ============================================================================
+
+def _theme_keyboard(current_theme: str) -> InlineKeyboardMarkup:
+    """Build theme selection keyboard."""
+    buttons = []
+    for key, theme in THEMES.items():
+        check = "\u2705 " if key == current_theme else ""
+        buttons.append([InlineKeyboardButton(
+            text=f"{check}{theme['display_name']}",
+            callback_data=f"theme:{key}",
+        )])
+    buttons.append([InlineKeyboardButton(
+        text="\u25c0\ufe0f \u041d\u0430\u0437\u0430\u0434 \u043a \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430\u043c",
+        callback_data="menu:settings",
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@router.callback_query(F.data == "settings:theme")
+async def cb_choose_theme(callback: CallbackQuery):
+    """Show theme selection menu."""
+    await callback.answer()
+    user_id = callback.from_user.id
+    current = await get_user_theme(user_id)
+    current_name = THEMES.get(current, THEMES["neutral"])["display_name"]
+
+    await callback.message.edit_text(
+        f"\U0001f3a8 <b>\u0412\u044b\u0431\u0435\u0440\u0438 \u0442\u0435\u043c\u0443 \u043e\u0444\u043e\u0440\u043c\u043b\u0435\u043d\u0438\u044f</b>\n\n"
+        f"\u0422\u0435\u043a\u0443\u0449\u0430\u044f: {current_name}\n\n"
+        f"\u0422\u0435\u043c\u0430 \u043c\u0435\u043d\u044f\u0435\u0442 \u0441\u0442\u0438\u043b\u044c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0439 \u0432 \u0442\u0435\u0441\u0442\u0430\u0445:\n"
+        f"\u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044f \u0443\u0440\u043e\u0432\u043d\u0435\u0439, XP, \u0434\u043e\u0441\u0442\u0438\u0436\u0435\u043d\u0438\u044f \u0438 \u0440\u0435\u0430\u043a\u0446\u0438\u0438.",
+        reply_markup=_theme_keyboard(current),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(F.data.startswith("theme:"))
+async def cb_set_theme(callback: CallbackQuery):
+    """Set user's gamification theme."""
+    theme_key = callback.data.split(":", 1)[1]
+    if theme_key not in THEMES:
+        await callback.answer("\u041d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u0430\u044f \u0442\u0435\u043c\u0430")
+        return
+
+    user_id = callback.from_user.id
+    await set_user_theme(user_id, theme_key)
+    await callback.answer(f"\u0422\u0435\u043c\u0430: {THEMES[theme_key]['display_name']}")
+
+    # Refresh theme menu
+    await callback.message.edit_text(
+        f"\U0001f3a8 <b>\u0412\u044b\u0431\u0435\u0440\u0438 \u0442\u0435\u043c\u0443 \u043e\u0444\u043e\u0440\u043c\u043b\u0435\u043d\u0438\u044f</b>\n\n"
+        f"\u0422\u0435\u043a\u0443\u0449\u0430\u044f: {THEMES[theme_key]['display_name']}\n\n"
+        f"\u0422\u0435\u043c\u0430 \u043c\u0435\u043d\u044f\u0435\u0442 \u0441\u0442\u0438\u043b\u044c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0439 \u0432 \u0442\u0435\u0441\u0442\u0430\u0445:\n"
+        f"\u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044f \u0443\u0440\u043e\u0432\u043d\u0435\u0439, XP, \u0434\u043e\u0441\u0442\u0438\u0436\u0435\u043d\u0438\u044f \u0438 \u0440\u0435\u0430\u043a\u0446\u0438\u0438.",
+        reply_markup=_theme_keyboard(theme_key),
+        parse_mode="HTML",
+    )

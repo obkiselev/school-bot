@@ -140,6 +140,20 @@ async def _run_migrations(conn: aiosqlite.Connection):
     except Exception as e:
         logger.debug("Migration 004 (notification_runs) skipped: %s", e)
 
+    # Миграция 005: геймификация (XP, серии, достижения, ежедневные задания)
+    migration_005 = migrations_dir / "005_gamification.sql"
+    if migration_005.exists():
+        with open(migration_005, "r", encoding="utf-8") as f:
+            sql = f.read()
+        for statement in sql.split(";"):
+            statement = statement.strip()
+            if statement:
+                try:
+                    await conn.execute(statement)
+                except Exception as e:
+                    logger.debug("Migration 005 statement skipped: %s", e)
+        await conn.commit()
+
     # Авто-создание главного админа (ADMIN_ID из .env)
     await _ensure_admin(conn)
 

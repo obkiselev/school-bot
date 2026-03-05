@@ -856,3 +856,156 @@ async def get_stats_summary(user_id: int) -> Dict:
         "total_questions_answered": row[2],
         "total_correct": row[3],
     }
+
+
+# ============================================================================
+# GAMIFICATION — user_stats, achievements, daily_challenges
+# ============================================================================
+
+async def get_user_stats(user_id: int) -> Optional[Dict]:
+    """Get gamification stats for a user. Returns None if not found."""
+    db = get_db()
+    row = await db.fetchone(
+        "SELECT user_id, xp_total, xp_today, xp_today_date, current_streak, "
+        "longest_streak, last_quiz_date, level, theme FROM user_stats WHERE user_id = ?",
+        (user_id,),
+    )
+    if not row:
+        return None
+    return {
+        "user_id": row[0], "xp_total": row[1], "xp_today": row[2],
+        "xp_today_date": row[3], "current_streak": row[4],
+        "longest_streak": row[5], "last_quiz_date": row[6],
+        "level": row[7], "theme": row[8],
+    }
+
+
+async def ensure_user_stats(user_id: int) -> Dict:
+    """Get or create user_stats record."""
+    stats = await get_user_stats(user_id)
+    if stats:
+        return stats
+    db = get_db()
+    await db.execute(
+        "INSERT OR IGNORE INTO user_stats (user_id) VALUES (?)", (user_id,),
+    )
+    return await get_user_stats(user_id)
+
+
+async def update_user_stats(
+    user_id: int, xp_total: int, xp_today: int, xp_today_date: str,
+    current_streak: int, longest_streak: int, last_quiz_date: str, level: int,
+) -> None:
+    """Update gamification stats after a quiz."""
+    db = get_db()
+    await db.execute(
+        """UPDATE user_stats SET
+            xp_total = ?, xp_today = ?, xp_today_date = ?,
+            current_streak = ?, longest_streak = ?,
+            last_quiz_date = ?, level = ?
+           WHERE user_id = ?""",
+        (xp_total, xp_today, xp_today_date, current_streak,
+         longest_streak, last_quiz_date, level, user_id),
+    )
+
+
+async def set_user_theme(user_id: int, theme: str) -> None:
+    """Set the gamification theme for a user."""
+    await ensure_user_stats(user_id)
+    db = get_db()
+    await db.execute(
+        "UPDATE user_stats SET theme = ? WHERE user_id = ?", (theme, user_id),
+    )
+
+
+async def get_user_theme(user_id: int) -> str:
+    """Get user's theme key. Defaults to 'neutral'."""
+    stats = await get_user_stats(user_id)
+    if stats:
+        return stats.get("theme") or "neutral"
+    return "neutral"
+
+
+async def get_user_badges(user_id: int) -> List[str]:
+    """Get list of badge keys earned by user."""
+    db = get_db()
+    rows = await db.fetchall(
+        "SELECT badge_key FROM achievements WHERE user_id = ? ORDER BY earned_at",
+        (user_id,),
+    )
+    return [row[0] for row in rows]
+
+
+async def award_badge(user_id: int, badge_key: str) -> bool:
+    """Award a badge. Returns True if newly awarded, False if already had."""
+    db = get_db()
+    try:
+        await db.execute(
+            "INSERT INTO achievements (user_id, badge_key) VALUES (?, ?)",
+            (user_id, badge_key),
+        )
+        return True
+    except Exception:
+        return False
+
+
+async def get_distinct_languages(user_id: int) -> int:
+    """Count distinct languages/subjects the user has tested."""
+    db = get_db()
+    row = await db.fetchone(
+        "SELECT COUNT(DISTINCT language) FROM test_sessions WHERE user_id = ?",
+        (user_id,),
+    )
+    return row[0] if row else 0
+
+
+async def get_distinct_topics(user_id: int) -> int:
+    """Count distinct topics the user has tested."""
+    db = get_db()
+    row = await db.fetchone(
+        "SELECT COUNT(DISTINCT topic) FROM test_sessions WHERE user_id = ?",
+        (user_id,),
+    )
+    return row[0] if row else 0
+
+
+async def get_daily_challenge(user_id: int, challenge_date: str) -> Optional[Dict]:
+    """Get daily challenge for user on given date."""
+    db = get_db()
+    row = await db.fetchone(
+        "SELECT id, user_id, challenge_date, subject, topic, is_completed, xp_reward "
+        "FROM daily_challenges WHERE user_id = ? AND challenge_date = ?",
+        (user_id, challenge_date),
+    )
+    if not row:
+        return None
+    return {
+        "id": row[0], "user_id": row[1], "challenge_date": row[2],
+        "subject": row[3], "topic": row[4],
+        "is_completed": row[5], "xp_reward": row[6],
+    }
+
+
+async def create_daily_challenge(
+    user_id: int, challenge_date: str, subject: str, topic: str, xp_reward: int = 50,
+) -> None:
+    """Create a daily challenge for a user."""
+    db = get_db()
+    try:
+        await db.execute(
+            """INSERT OR IGNORE INTO daily_challenges
+               (user_id, challenge_date, subject, topic, xp_reward)
+               VALUES (?, ?, ?, ?, ?)""",
+            (user_id, challenge_date, subject, topic, xp_reward),
+        )
+    except Exception:
+        pass
+
+
+async def complete_daily_challenge(user_id: int, challenge_date: str) -> None:
+    """Mark daily challenge as completed."""
+    db = get_db()
+    await db.execute(
+        "UPDATE daily_challenges SET is_completed = 1 WHERE user_id = ? AND challenge_date = ?",
+        (user_id, challenge_date),
+    )

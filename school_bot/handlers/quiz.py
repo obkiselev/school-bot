@@ -1,5 +1,8 @@
 """Quiz flow handlers — answering questions, cancel, results."""
 import logging
+import time
+from datetime import date
+
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -8,6 +11,10 @@ logger = logging.getLogger(__name__)
 
 from states.quiz_states import QuizFlow
 from services.answer_checker import check_answer
+from services.gamification import (
+    calculate_xp, update_streak, check_badges, level_from_xp,
+    format_results_text, get_theme, progress_bar,
+)
 from keyboards.quiz_kb import multiple_choice_keyboard, true_false_keyboard, cancel_keyboard
 from keyboards.main_menu import quiz_home_keyboard
 
@@ -17,6 +24,7 @@ router = Router()
 async def start_quiz(message: Message, state: FSMContext):
     """Send the first question of the quiz."""
     await state.set_state(QuizFlow.answering_question)
+    await state.update_data(question_sent_at=time.time(), answer_times=[])
     await _send_current_question(message, state)
 
 
@@ -33,7 +41,14 @@ async def _send_current_question(message: Message, state: FSMContext):
 
     q = questions[index]
     q_type = q["type"]
-    header = f"❓ Вопрос {index + 1} из {total}\n\n"
+
+    # Progress bar header
+    correct_so_far = data["correct_count"]
+    pbar = progress_bar(index, total)
+    header = f"\u2753 \u0412\u043e\u043f\u0440\u043e\u0441 {index + 1}/{total} {pbar}\n\u2705 {correct_so_far} \u043f\u0440\u0430\u0432\u0438\u043b\u044c\u043d\u044b\u0445\n\n"
+
+    # Record when question was sent (for speed bonus)
+    await state.update_data(question_sent_at=time.time())
 
     if q_type == "multiple_choice":
         text = header + q["question"]
@@ -44,11 +59,11 @@ async def _send_current_question(message: Message, state: FSMContext):
         await message.answer(text, reply_markup=true_false_keyboard())
 
     elif q_type == "fill_blank":
-        text = header + q["question"] + "\n\n✏️ Напиши ответ (пропущенное слово):"
+        text = header + q["question"] + "\n\n\u270f\ufe0f \u041d\u0430\u043f\u0438\u0448\u0438 \u043e\u0442\u0432\u0435\u0442 (\u043f\u0440\u043e\u043f\u0443\u0449\u0435\u043d\u043d\u043e\u0435 \u0441\u043b\u043e\u0432\u043e):"
         await message.answer(text, reply_markup=cancel_keyboard())
 
     elif q_type == "translation":
-        text = header + q["question"] + "\n\n✏️ Напиши перевод:"
+        text = header + q["question"] + "\n\n\u270f\ufe0f \u041d\u0430\u043f\u0438\u0448\u0438 \u043f\u0435\u0440\u0435\u0432\u043e\u0434:"
         await message.answer(text, reply_markup=cancel_keyboard())
 
     else:
@@ -69,7 +84,7 @@ async def answer_via_text(message: Message, state: FSMContext):
     """Handle answers typed as text."""
     user_answer = message.text.strip() if message.text else ""
     if not user_answer:
-        await message.answer("Напиши ответ текстом:")
+        await message.answer("\u041d\u0430\u043f\u0438\u0448\u0438 \u043e\u0442\u0432\u0435\u0442 \u0442\u0435\u043a\u0441\u0442\u043e\u043c:")
         return
     await _process_answer(message, state, user_answer)
 
@@ -79,7 +94,7 @@ async def cancel_quiz(callback: CallbackQuery, state: FSMContext):
     """Cancel the current quiz and go home."""
     await state.clear()
     await callback.message.answer(
-        "Тест отменён. Возвращаемся в меню.",
+        "\u0422\u0435\u0441\u0442 \u043e\u0442\u043c\u0435\u043d\u0451\u043d. \u0412\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u043c\u0441\u044f \u0432 \u043c\u0435\u043d\u044e.",
         reply_markup=quiz_home_keyboard(),
     )
     await callback.answer()
@@ -92,23 +107,33 @@ async def _process_answer(message: Message, state: FSMContext, user_answer: str)
     index = data["current_index"]
     correct_count = data["correct_count"]
     answers = data["answers"]
+    answer_times = data.get("answer_times", [])
+
+    # Calculate answer time
+    question_sent_at = data.get("question_sent_at", time.time())
+    elapsed = time.time() - question_sent_at
+    answer_times.append(elapsed)
 
     q = questions[index]
     is_correct = check_answer(q, user_answer)
 
+    # Get user theme for feedback messages
+    theme_key = data.get("theme_key", "neutral")
+    theme = get_theme(theme_key)
+
     if is_correct:
         correct_count += 1
-        feedback = "✅ Правильно!"
+        feedback = theme["correct_msg"]
     else:
         correct_display = q["correct"]
         if len(correct_display) == 1 and correct_display.upper() in "ABCD" and q.get("options"):
             idx = ord(correct_display.upper()) - ord("A")
             if 0 <= idx < len(q["options"]):
                 correct_display = q["options"][idx]
-        feedback = f"❌ Неправильно.\n\n📝 Правильный ответ: {correct_display}"
+        feedback = f"{theme['wrong_msg']}\n\n\U0001f4dd \u041f\u0440\u0430\u0432\u0438\u043b\u044c\u043d\u044b\u0439 \u043e\u0442\u0432\u0435\u0442: {correct_display}"
         explanation = q.get("explanation", "")
         if explanation:
-            feedback += f"\n\n💡 {explanation}"
+            feedback += f"\n\n\U0001f4a1 {explanation}"
 
     answers.append({
         "question_type": q["type"],
@@ -123,6 +148,7 @@ async def _process_answer(message: Message, state: FSMContext, user_answer: str)
         current_index=index + 1,
         correct_count=correct_count,
         answers=answers,
+        answer_times=answer_times,
     )
 
     await message.answer(feedback)
@@ -130,43 +156,108 @@ async def _process_answer(message: Message, state: FSMContext, user_answer: str)
 
 
 async def _show_results(message: Message, state: FSMContext):
-    """Show the final quiz results."""
+    """Show the final quiz results with gamification."""
     data = await state.get_data()
     language = data.get("language", "")
     topic = data.get("topic", "")
     total = data.get("question_count", 0)
     correct = data.get("correct_count", 0)
     answers = data.get("answers", [])
+    answer_times = data.get("answer_times", [])
+    user_id = data.get("user_id")
 
     actual_total = len(answers) or total
     percent = round(correct / actual_total * 100) if actual_total > 0 else 0
 
-    if percent >= 90:
-        emoji, comment = "🏆", "Отличный результат!"
-    elif percent >= 70:
-        emoji, comment = "👍", "Хороший результат!"
-    elif percent >= 50:
-        emoji, comment = "📖", "Неплохо, но есть над чем поработать."
-    else:
-        emoji, comment = "💪", "Нужно ещё потренироваться. Ты справишься!"
-
-    lang_flag = "🇬🇧" if language == "English" else "🇪🇸"
-
-    text = (
-        f"📊 Результаты теста\n\n"
-        f"{lang_flag} Язык: {language}\n"
-        f"📚 Тема: {topic}\n\n"
-        f"{emoji} Правильных: {correct} из {actual_total} ({percent}%)\n\n"
-        f"{comment}"
-    )
-
+    # Save test session to DB
     try:
         from database.crud import save_test_session
-        user_id = data.get("user_id")
         if user_id:
             await save_test_session(user_id, language, topic, actual_total, correct, percent, answers)
     except Exception as e:
-        logger.error("Failed to save test session for user_id=%s: %s", data.get("user_id"), e)
+        logger.error("Failed to save test session for user_id=%s: %s", user_id, e)
+
+    # Gamification
+    theme_key = "neutral"
+    xp_earned = 0
+    streak_days = 0
+    level = 1
+    xp_total = 0
+    new_badges = []
+
+    if user_id:
+        try:
+            from database.crud import (
+                ensure_user_stats, update_user_stats, get_user_badges,
+                award_badge, get_distinct_languages, get_distinct_topics,
+                get_stats_summary,
+            )
+
+            stats = await ensure_user_stats(user_id)
+            theme_key = stats.get("theme") or "neutral"
+
+            # Update streak
+            streak_days, _ = update_streak(
+                stats.get("last_quiz_date"), stats.get("current_streak", 0),
+            )
+            longest = max(streak_days, stats.get("longest_streak", 0))
+
+            # Calculate XP
+            xp_earned = calculate_xp(correct, actual_total, streak_days, answer_times)
+            xp_total = (stats.get("xp_total") or 0) + xp_earned
+            level = level_from_xp(xp_total)
+
+            # XP today
+            today_str = date.today().isoformat()
+            if stats.get("xp_today_date") == today_str:
+                xp_today = (stats.get("xp_today") or 0) + xp_earned
+            else:
+                xp_today = xp_earned
+
+            # Save updated stats
+            await update_user_stats(
+                user_id, xp_total, xp_today, today_str,
+                streak_days, longest, today_str, level,
+            )
+
+            # Check badges
+            existing = set(await get_user_badges(user_id))
+            summary = await get_stats_summary(user_id)
+            langs = await get_distinct_languages(user_id)
+            topics_count = await get_distinct_topics(user_id)
+            all_fast = bool(answer_times) and all(t < 10.0 for t in answer_times)
+
+            new_badges = check_badges(
+                total_tests=summary.get("total_tests", 0),
+                current_streak=streak_days,
+                level=level,
+                percent=percent,
+                languages_used=langs,
+                topics_used=topics_count,
+                all_fast=all_fast,
+                existing_badges=existing,
+            )
+
+            for badge_key in new_badges:
+                await award_badge(user_id, badge_key)
+
+        except Exception as e:
+            logger.error("Gamification error for user_id=%s: %s", user_id, e)
+
+    # Format themed result text
+    text = format_results_text(
+        theme_key=theme_key,
+        language=language,
+        topic=topic,
+        correct=correct,
+        total=actual_total,
+        percent=percent,
+        xp_earned=xp_earned,
+        streak_days=streak_days,
+        level=level,
+        xp_total=xp_total,
+        new_badges=new_badges,
+    )
 
     await state.clear()
     await message.answer(text, reply_markup=quiz_home_keyboard())

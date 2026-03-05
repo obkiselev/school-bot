@@ -36,7 +36,7 @@ school_bot/
 ├── keyboards/      — main_menu.py, quiz_kb.py
 ├── middlewares/     — access.py (ACL), throttle.py (anti-spam)
 ├── llm/            — client.py, prompts.py, parser.py
-├── services/       — test_generator, answer_checker, progress_tracker, notification_service
+├── services/       — test_generator, answer_checker, progress_tracker, notification_service, gamification
 ├── states/         — registration.py, quiz_states.py
 ├── database/       — crud.py, migrations/
 ├── utils/          — token_manager.py, rate_limiter.py
@@ -63,6 +63,18 @@ school_bot/
 - Rate limit: 2.5 сек между пользователями
 - TelegramForbiddenError → автоотключение уведомлений
 - `mark_*_notified()` вызывается ТОЛЬКО при успешной отправке (защита от потери данных)
+
+## Геймификация (v0.5.0)
+
+- Сервис: `services/gamification.py` — XP, уровни, серии, значки, темы
+- 5 тем: neutral, minecraft, ninjago, space, superhero (THEMES dict)
+- 11 значков: BADGES dict
+- Таблицы: `user_stats`, `achievements`, `daily_challenges` (миграция 005)
+- CRUD: `database/crud.py` — get/ensure/update_user_stats, get/set_user_theme, get/award_badge и др.
+- Выбор темы: `handlers/settings.py` (callback `settings:theme`, `theme:<key>`)
+- Прогресс-бар + XP в `handlers/quiz.py`, заголовок в `handlers/history.py`
+- Ежедневные задания: `handlers/language.py` (callback `daily_challenge`)
+- Тесты: `tests/test_gamification.py` (46 тестов)
 
 ## Важные детали
 

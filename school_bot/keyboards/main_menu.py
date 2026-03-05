@@ -42,7 +42,8 @@ def student_menu_keyboard() -> InlineKeyboardMarkup:
 def quiz_home_keyboard() -> InlineKeyboardMarkup:
     """Home menu for quiz section (back to start)."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📝 Пройти тест", callback_data="start_test")],
-        [InlineKeyboardButton(text="📈 Мои результаты", callback_data="my_results")],
+        [InlineKeyboardButton(text="\U0001f4dd \u041f\u0440\u043e\u0439\u0442\u0438 \u0442\u0435\u0441\u0442", callback_data="start_test")],
+        [InlineKeyboardButton(text="\U0001f3af \u0417\u0430\u0434\u0430\u043d\u0438\u0435 \u0434\u043d\u044f", callback_data="daily_challenge")],
+        [InlineKeyboardButton(text="\U0001f4c8 \u041c\u043e\u0438 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u044b", callback_data="my_results")],
         [home_button()],
     ])
