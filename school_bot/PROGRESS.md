@@ -1,8 +1,8 @@
 # School Bot — Прогресс разработки
 
-## Текущая версия: 0.4.2
+## Текущая версия: 0.4.3
 
-## Статус: Фаза 4 — стабилизация (логирование, уведомления, race conditions, валидация)
+## Статус: Фаза 4 — устойчивые уведомления, тестовое покрытие
 
 ---
 
@@ -38,7 +38,7 @@
 - [x] IDOR-защита (проверка владельца student_id)
 - [x] HTML-экранирование данных МЭШ API
 - [x] Обработка ошибок МЭШ API с кнопкой «Повторить»
-- [x] Unit-тесты для расписания (30 тестов, 100% pass)
+- [x] Unit-тесты для расписания (30 тестов, 100% pass) → 72 теста (v0.4.3)
 - [x] Слияние school_helper: ролевая система (admin/parent/student)
 - [x] Слияние school_helper: Access Control Middleware
 - [x] Слияние school_helper: тестирование по языкам (English, Spanish) через LLM
@@ -58,6 +58,7 @@
 - [x] Кнопка «Настройки» в главном меню (admin, parent, student)
 - [x] Очистка старого кеша (еженедельно, воскресенье 03:00)
 - [x] Обработка ошибок: TelegramForbiddenError → отключение уведомлений, rate limit МЭШ API
+- [x] Устойчивые уведомления: досылка пропущенных при рестарте бота (v0.4.3)
 
 ## Фаза 4: Production — В РАБОТЕ
 
@@ -84,6 +85,36 @@
 ---
 
 ## Changelog
+
+### v0.4.3 — Устойчивые уведомления + тестовое покрытие
+
+**Устойчивые уведомления (была v0.4.1-plan, теперь реализовано):**
+- Новая таблица `notification_runs` — отслеживание даты последней успешной рассылки
+- `check_and_send_missed(bot)` — при старте бота досылает пропущенные уведомления (бот был выключен в 18:00/19:00)
+- `save_notification_run()` / `get_last_notification_run()` — CRUD для таблицы
+- APScheduler: `misfire_grace_time=3600`, `coalesce=True` — запуск до 1 часа после пропуска
+- Миграция 004 для существующих БД (CREATE TABLE IF NOT EXISTS)
+
+**Фикс потери данных:**
+- `mark_grades_notified()` и `mark_homework_notified()` теперь вызываются ТОЛЬКО при успешной отправке (`_safe_send_message() == True`)
+- Раньше: ошибка отправки → оценки/ДЗ помечались как отправленные → данные терялись навсегда
+- `_cleanup_stale_cache_on_start()` теперь помечает только записи старше 2 дней (раньше — все, уничтожая свежие данные)
+
+**Тестовое покрытие (72 теста, 100% pass):**
+- `tests/test_notifications.py` (22 теста) — форматирование, retry, check_and_send_missed, CRUD, mark-on-success
+- `tests/test_rate_limiter.py` (6 тестов) — token bucket: burst, exhaustion, refill, cap, concurrent
+- `tests/test_access.py` (11 тестов) — ACL middleware: admin bypass, public commands, FSM bypass, fail-closed
+- Ранее: 36 тестов (schedule + token manager) → теперь 72 теста
+
+**Изменённые файлы:**
+- `database/migrations/init.sql` — таблица notification_runs
+- `core/database.py` — миграция 004
+- `database/crud.py` — save_notification_run, get_last_notification_run
+- `services/notification_service.py` — check_and_send_missed, mark-on-success, misfire_grace_time, stale cache fix
+- `bot.py` — вызов check_and_send_missed при старте
+- `tests/test_notifications.py` (новый)
+- `tests/test_rate_limiter.py` (новый)
+- `tests/test_access.py` (новый)
 
 ### v0.4.2 — Стабилизация: логирование, retry уведомлений, race conditions, валидация
 
@@ -123,47 +154,6 @@
 ### v0.4.1 — Кнопка «Назад» в навигации оценок, ДЗ и расписания
 
 (реализовано ранее, см. коммит fd94141)
-
-### v0.4.1-plan — Устойчивые уведомления: запуск пропущенных при старте бота (план, НЕ реализовано)
-
-**Проблема (2026-03-04):** Уведомления об оценках (18:00) и ДЗ (19:00) не пришли, потому что бот был выключен в оба момента. APScheduler с CronTrigger пропускает задачи, если бот не работал — задачи **не запускаются задним числом**. За день бот перезапускался 10+ раз из-за отладки регистрации учеников МЭШ.
-
-**Решение (НЕ ЗАВЕРШЕНА):**
-
-Нужно сделать 4 изменения:
-
-1. **Таблица `notification_runs`** в `database/migrations/init.sql` + миграция в `core/database.py`
-   - Столбцы: `id`, `notification_type` (grades/homework), `run_date` (DATE), `completed_at` (DATETIME)
-   - Хранит дату последней успешной отправки каждого типа уведомлений
-   - **Статус: НЕ СДЕЛАНО**
-
-2. **CRUD-функции** в `database/crud.py`
-   - `save_notification_run(notification_type, run_date)` — записать, что уведомление за эту дату отправлено
-   - `get_last_notification_run(notification_type)` — получить дату последнего запуска
-   - **Статус: НЕ СДЕЛАНО**
-
-3. **Логика пропущенных уведомлений** в `services/notification_service.py`
-   - `check_and_send_missed(bot)` — вызывается при старте бота:
-     - Читает `get_last_notification_run("grades")` — если сегодня не отправлялись и текущее время > 18:00 → отправить
-     - Аналогично для homework с 19:00
-   - В конце `_send_grades_notifications()` и `_send_homework_notifications()` — вызов `save_notification_run()`
-   - **Статус: НЕ СДЕЛАНО**
-
-4. **Изменения в `bot.py`**
-   - Добавить `misfire_grace_time=3600` и `coalesce=True` к job'ам APScheduler (строки 52-65 в notification_service.py)
-   - После `scheduler.start()` вызвать `await check_and_send_missed(bot)`
-   - **Статус: НЕ СДЕЛАНО**
-
-**Все файлы проекта прочитаны и проанализированы, код менять не начинали — только план.**
-
-**Файлы, которые нужно изменить:**
-- `database/migrations/init.sql` — добавить CREATE TABLE notification_runs
-- `core/database.py` — миграция для существующих БД (CREATE TABLE IF NOT EXISTS)
-- `database/crud.py` — 2 новые CRUD-функции
-- `services/notification_service.py` — check_and_send_missed() + save_notification_run() в конце задач
-- `bot.py` — misfire_grace_time + вызов check_and_send_missed при старте
-
----
 
 ### v0.4.0.1 — Фикс: 499/E0002 при регистрации ученика (каскад fallback-ов)
 

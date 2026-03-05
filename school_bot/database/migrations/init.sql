@@ -95,3 +95,12 @@ CREATE INDEX IF NOT EXISTS idx_grades_child ON grades_cache(child_id, date);
 CREATE INDEX IF NOT EXISTS idx_homework_child ON homework_cache(child_id, due_date);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notification_settings(user_id);
 CREATE INDEX IF NOT EXISTS idx_activity_timestamp ON activity_log(timestamp);
+
+-- Notification run tracking (detect missed runs after bot downtime)
+CREATE TABLE IF NOT EXISTS notification_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    notification_type TEXT NOT NULL,   -- 'grades' or 'homework'
+    run_date DATE NOT NULL,
+    completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(notification_type, run_date)
+);

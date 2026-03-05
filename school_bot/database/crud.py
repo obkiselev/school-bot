@@ -592,6 +592,26 @@ async def disable_all_notifications(user_id: int) -> None:
     )
 
 
+async def save_notification_run(notification_type: str, run_date) -> None:
+    """Записать, что уведомления данного типа были отправлены за эту дату."""
+    db = get_db()
+    await db.execute(
+        """INSERT OR REPLACE INTO notification_runs (notification_type, run_date, completed_at)
+           VALUES (?, ?, datetime('now'))""",
+        (notification_type, str(run_date)),
+    )
+
+
+async def get_last_notification_run(notification_type: str) -> Optional[str]:
+    """Получить дату последнего запуска уведомлений, или None."""
+    db = get_db()
+    row = await db.fetchone(
+        "SELECT run_date FROM notification_runs WHERE notification_type = ? ORDER BY run_date DESC LIMIT 1",
+        (notification_type,),
+    )
+    return row[0] if row else None
+
+
 async def cleanup_old_cache(days: int = 30) -> None:
     """Удалить кеш-записи старше N дней."""
     db = get_db()

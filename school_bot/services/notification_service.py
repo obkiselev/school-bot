@@ -4,6 +4,7 @@ import html
 import logging
 from collections import defaultdict
 from datetime import date, timedelta
+from datetime import datetime
 from typing import Optional
 
 from aiogram import Bot
@@ -26,6 +27,8 @@ from database.crud import (
     disable_all_notifications,
     cleanup_old_cache,
     log_activity,
+    save_notification_run,
+    get_last_notification_run,
 )
 from mesh_api.client import MeshClient
 from mesh_api.exceptions import AuthenticationError, MeshAPIError
@@ -54,6 +57,8 @@ def init_scheduler(bot: Bot) -> AsyncIOScheduler:
         CronTrigger(hour=int(grades_h), minute=int(grades_m), timezone=tz),
         id="daily_grades",
         replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
     )
 
     # ДЗ — ежедневно
@@ -62,6 +67,8 @@ def init_scheduler(bot: Bot) -> AsyncIOScheduler:
         CronTrigger(hour=int(hw_h), minute=int(hw_m), timezone=tz),
         id="daily_homework",
         replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
     )
 
     # Очистка старого кеша — раз в неделю, ночью
@@ -115,6 +122,7 @@ async def _send_grades_notifications():
 
 
     logger.info("Уведомления: оценки — обработано %d, ошибок %d", sent_count, error_count)
+    await save_notification_run("grades", date.today())
 
 
 async def _process_grades_for_user(user_id: int, subs: list):
@@ -182,15 +190,15 @@ async def _process_grades_for_user(user_id: int, subs: list):
     # Отправляем уведомление
     if all_new_grades:
         text = _format_grades_notification(all_new_grades)
-        await _safe_send_message(user_id, text)
+        sent_ok = await _safe_send_message(user_id, text)
 
-        # Помечаем отправленными
-        for _, grades in all_new_grades:
-            ids = [g["grade_id"] for g in grades]
-            await mark_grades_notified(ids)
+        if sent_ok:
+            for _, grades in all_new_grades:
+                ids = [g["grade_id"] for g in grades]
+                await mark_grades_notified(ids)
 
-        total = sum(len(g) for _, g in all_new_grades)
-        await log_activity(user_id, "notification_sent", f"grades: {total} new")
+            total = sum(len(g) for _, g in all_new_grades)
+            await log_activity(user_id, "notification_sent", f"grades: {total} new")
 
 
 # ============================================================================
@@ -223,6 +231,7 @@ async def _send_homework_notifications():
 
 
     logger.info("Уведомления: ДЗ — обработано %d, ошибок %d", sent_count, error_count)
+    await save_notification_run("homework", date.today())
 
 
 async def _process_homework_for_user(user_id: int, subs: list):
@@ -285,14 +294,15 @@ async def _process_homework_for_user(user_id: int, subs: list):
 
     if all_new_hw:
         text = _format_homework_notification(all_new_hw)
-        await _safe_send_message(user_id, text)
+        sent_ok = await _safe_send_message(user_id, text)
 
-        for _, hw_list in all_new_hw:
-            ids = [hw["homework_id"] for hw in hw_list]
-            await mark_homework_notified(ids)
+        if sent_ok:
+            for _, hw_list in all_new_hw:
+                ids = [hw["homework_id"] for hw in hw_list]
+                await mark_homework_notified(ids)
 
-        total = sum(len(h) for _, h in all_new_hw)
-        await log_activity(user_id, "notification_sent", f"homework: {total} new")
+            total = sum(len(h) for _, h in all_new_hw)
+            await log_activity(user_id, "notification_sent", f"homework: {total} new")
 
 
 # ============================================================================
@@ -374,19 +384,64 @@ async def _safe_send_message(user_id: int, text: str) -> bool:
 
 
 # ============================================================================
+# ПРОВЕРКА ПРОПУЩЕННЫХ УВЕДОМЛЕНИЙ
+# ============================================================================
+
+async def check_and_send_missed(bot: Bot):
+    """Проверяет и досылает пропущенные уведомления (бот был выключен).
+
+    Вызывается один раз при старте бота, после scheduler.start().
+    Для каждого типа: если последний запуск < сегодня И текущее время > запланированного — отправить.
+    """
+    tz = pytz.timezone(settings.TIMEZONE)
+    now = datetime.now(tz)
+    today_str = now.strftime("%Y-%m-%d")
+
+    checks = [
+        ("grades", settings.GRADES_NOTIFICATION_TIME, _send_grades_notifications),
+        ("homework", settings.HOMEWORK_NOTIFICATION_TIME, _send_homework_notifications),
+    ]
+
+    for notif_type, scheduled_time, send_func in checks:
+        scheduled_h, scheduled_m = scheduled_time.split(":")
+        scheduled_dt = now.replace(
+            hour=int(scheduled_h), minute=int(scheduled_m), second=0, microsecond=0
+        )
+
+        if now < scheduled_dt:
+            logger.info("Пропущенные: %s — ещё не %s, пропуск", notif_type, scheduled_time)
+            continue
+
+        last_run = await get_last_notification_run(notif_type)
+
+        if last_run and last_run >= today_str:
+            logger.info("Пропущенные: %s — уже отправлены сегодня (%s), пропуск", notif_type, last_run)
+            continue
+
+        logger.warning("Пропущенные: %s — последний запуск=%s, отправляем сейчас...", notif_type, last_run)
+        try:
+            await send_func()
+        except Exception as e:
+            logger.error("Пропущенные: %s — ошибка: %s", notif_type, e)
+
+
+# ============================================================================
 # ОЧИСТКА КЕША
 # ============================================================================
 
 async def _cleanup_stale_cache_on_start():
-    """Помечает устаревшие записи кеша как отправленные при старте бота."""
+    """Помечает записи кеша старше 2 дней как отправленные (уже неактуальны)."""
     from core.database import get_db
     try:
         db = get_db()
         conn = await db.connect()
         for table in ("grades_cache", "homework_cache"):
-            await conn.execute(f"UPDATE {table} SET is_notified = 1 WHERE is_notified = 0")
+            await conn.execute(
+                f"UPDATE {table} SET is_notified = 1 "
+                f"WHERE is_notified = 0 AND created_at < datetime('now', '-2 days')"
+            )
         await conn.commit()
-        logger.info("Уведомления: устаревший кеш помечен как отправленный при старте")
+        logger.info("Уведомления: устаревший кеш (>2 дней) помечен при старте")
     except Exception as e:
         logger.warning("Уведомления: не удалось очистить кеш при старте: %s", e)
 

@@ -355,6 +355,10 @@ async def main():
                 settings.HOMEWORK_NOTIFICATION_TIME,
                 settings.TIMEZONE)
 
+    # Проверка пропущенных уведомлений (бот был выключен в момент рассылки)
+    from services.notification_service import check_and_send_missed
+    await check_and_send_missed(bot)
+
     # Start polling
     try:
         logger.info("Starting bot polling...")

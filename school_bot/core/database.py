@@ -125,6 +125,21 @@ async def _run_migrations(conn: aiosqlite.Connection):
                         logger.debug("Migration 003 statement skipped: %s", e)
             await conn.commit()
 
+    # Миграция 004: таблица notification_runs (отслеживание пропущенных уведомлений)
+    try:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS notification_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                notification_type TEXT NOT NULL,
+                run_date DATE NOT NULL,
+                completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(notification_type, run_date)
+            )
+        """)
+        await conn.commit()
+    except Exception as e:
+        logger.debug("Migration 004 (notification_runs) skipped: %s", e)
+
     # Авто-создание главного админа (ADMIN_ID из .env)
     await _ensure_admin(conn)
 
