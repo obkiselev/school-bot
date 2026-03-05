@@ -24,7 +24,12 @@ async def topic_selected(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     language = data["language"]
-    topics = settings.TOPICS.get(language, [])
+    level = data.get("level", "A2")
+    lang_topics = settings.TOPICS.get(language, {})
+    if isinstance(lang_topics, dict):
+        topics = lang_topics.get(level, [])
+    else:
+        topics = lang_topics
     topic_index = int(value)
     topic = topics[topic_index]
 
@@ -41,12 +46,14 @@ async def topic_selected(callback: CallbackQuery, state: FSMContext):
 async def back_to_topic(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     language = data.get("language", "English")
+    level = data.get("level", "A2")
     await state.set_state(QuizFlow.choosing_topic)
 
     lang_name = "английскому" if language == "English" else "испанскому"
     await callback.message.edit_text(
-        f"📚 Выбери тему по {lang_name} языку:",
-        reply_markup=topic_keyboard(language),
+        f"📚 Уровень: {level}\n"
+        f"Выбери тему по {lang_name} языку:",
+        reply_markup=topic_keyboard(language, level),
     )
     await callback.answer()
 

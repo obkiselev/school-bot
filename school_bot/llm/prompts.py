@@ -2,8 +2,8 @@
 from config import settings
 
 
-def build_test_prompt(language: str, topic: str, count: int, previous_questions: list[str] | None = None) -> str:
-    level = settings.LEVEL_DESCRIPTIONS.get(language, "5th grade student")
+def build_test_prompt(language: str, topic: str, count: int, level: str = "A2", previous_questions: list[str] | None = None) -> str:
+    level_desc = settings.LEVEL_DESCRIPTIONS.get(level, f"{level} level student")
 
     if language == "English":
         source_lang, target_lang = "Russian", "English"
@@ -37,10 +37,10 @@ For translation:
 For true_false:
 {{"type": "true_false", "question": "In Spanish, nouns have gender (masculine/feminine).", "correct": "True", "explanation": "..."}}"""
 
-    prompt = f"""You are an educational test generator for a 5th-grade student.
+    prompt = f"""You are an educational test generator.
 
 Language being tested: {language}
-Student level: {level}
+Student level: {level} — {level_desc}
 Topic: {topic}
 Number of questions: {count}
 
@@ -51,7 +51,7 @@ Generate exactly {count} test questions in {language}. Mix the following questio
 - true_false: A statement that is either true or false about the language rule or vocabulary.
 
 Rules:
-1. Difficulty must be appropriate for a {level}.
+1. Difficulty must be appropriate for a {level} ({level_desc}) student.
 2. All content must be related to the topic "{topic}".
 3. All questions and answer options MUST be in {language} (except translations from {source_lang}).
 4. For wrong answers in multiple_choice, make distractors plausible but clearly wrong.

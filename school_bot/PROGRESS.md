@@ -1,8 +1,8 @@
 # School Bot — Прогресс разработки
 
-## Текущая версия: 0.5.0
+## Текущая версия: 0.6.0
 
-## Статус: Фаза 5 — геймификация + тематизация
+## Статус: Фаза 6 — адаптивная сложность
 
 ---
 
@@ -89,6 +89,23 @@
 - [x] CRUD для user_stats, achievements, daily_challenges (`database/crud.py`)
 - [x] 46 тестов геймификации (118 всего, 100% pass)
 
+## Фаза 6: Адаптивная сложность — ЗАВЕРШЕНА
+
+- [x] `services/level_adapter.py` (NEW) — extract_grade, grade_to_language_level, get_user_level
+- [x] `tests/test_level_adapter.py` (NEW) — 27 тестов
+- [x] `config.py` — TOPICS вложенные по уровням (A1/A2/B1/B2/C1), LEVEL_DESCRIPTIONS по CEFR
+- [x] `states/quiz_states.py` — новое состояние choosing_level
+- [x] `keyboards/quiz_kb.py` — level_keyboard(), topic_keyboard(language, level)
+- [x] `handlers/language.py` — ученик -> авто-уровень, родитель/админ -> выбор уровня
+- [x] `handlers/topic.py` — темы по уровню
+- [x] `llm/prompts.py` — убран хардкод "5th-grade", динамический уровень CEFR
+- [x] `services/test_generator.py` — параметр level
+- [x] `handlers/quiz_settings.py` — передача level в генератор, уровень в UI
+- [x] `database/migrations/006_adaptive_difficulty.sql` (NEW) — колонка difficulty в test_sessions
+- [x] `core/database.py` — миграция 006
+- [x] `database/crud.py` — difficulty в save_test_session
+- [x] `handlers/quiz.py` — сохранение difficulty в результатах
+
 ---
 
 ## Известные баги и проблемы
@@ -102,6 +119,46 @@
 ---
 
 ## Changelog
+
+### v0.6.0 — Адаптивная сложность: CEFR-уровни, авто-определение для учеников
+
+**Адаптивная сложность тестов:**
+- Ученики: уровень определяется автоматически из class_name (например, "5A" -> класс 5 -> A2 English)
+- Родители/админы: ручной выбор уровня (A1/A2/B1/B2/C1) через инлайн-клавиатуру
+- Маппинг класс→уровень: English (1-4→A1, 5-6→A2, 7-8→B1, 9-11→B2), Spanish (1-6→A1, 7-8→A1-A2, 9-11→A2)
+
+**Темы по уровням:**
+- TOPICS реструктурированы из плоского списка в вложенные по CEFR: `{"English": {"A1": [...], "A2": [...], ...}}`
+- English: 5 уровней (A1-C1), по 5 тем на каждый
+- Spanish: 4 уровня (A1, A1-A2, A2, B1), по 5 тем на каждый
+
+**LLM промпт:**
+- Убран хардкод "5th-grade student" — теперь динамический уровень CEFR с описанием
+- Генерация тестов учитывает уровень студента
+
+**БД:**
+- Миграция 006: колонка `difficulty` в `test_sessions` — сохраняет CEFR-уровень каждого теста
+
+**Тесты (145 всего, 100% pass):**
+- `tests/test_level_adapter.py` (27 тестов) — extract_grade, grade_to_language_level, AVAILABLE_LEVELS, get_user_level
+
+**Новые файлы:**
+- `services/level_adapter.py` — ядро: extract_grade, grade_to_language_level, get_user_level
+- `database/migrations/006_adaptive_difficulty.sql` — миграция
+- `tests/test_level_adapter.py` — 27 тестов
+
+**Изменённые файлы:**
+- `config.py` — TOPICS по уровням, LEVEL_DESCRIPTIONS по CEFR
+- `states/quiz_states.py` — состояние choosing_level
+- `keyboards/quiz_kb.py` — level_keyboard(), topic_keyboard(language, level)
+- `handlers/language.py` — авто-определение уровня (student) / выбор (parent/admin)
+- `handlers/topic.py` — темы по уровню из FSM
+- `llm/prompts.py` — динамический уровень в промпте
+- `services/test_generator.py` — параметр level
+- `handlers/quiz_settings.py` — передача level, отображение в UI
+- `handlers/quiz.py` — difficulty в save_test_session
+- `database/crud.py` — difficulty параметр
+- `core/database.py` — миграция 006
 
 ### v0.5.0 — Геймификация: XP, уровни, серии, значки, 5 тем оформления
 

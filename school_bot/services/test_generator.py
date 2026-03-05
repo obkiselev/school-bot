@@ -8,7 +8,7 @@ from llm.parser import parse_questions
 logger = logging.getLogger(__name__)
 
 
-async def generate_test(language: str, topic: str, count: int, user_id: int | None = None) -> list[dict] | None:
+async def generate_test(language: str, topic: str, count: int, user_id: int | None = None, level: str = "A2") -> list[dict] | None:
     """Generate a test with the given parameters. Returns list of questions or None."""
     previous_questions: list[str] = []
     if user_id:
@@ -18,7 +18,7 @@ async def generate_test(language: str, topic: str, count: int, user_id: int | No
         except Exception:
             logger.warning("Could not fetch question history, proceeding without it")
 
-    prompt = build_test_prompt(language, topic, count, previous_questions=previous_questions or None)
+    prompt = build_test_prompt(language, topic, count, level=level, previous_questions=previous_questions or None)
 
     # First attempt
     raw = await chat_completion(prompt)

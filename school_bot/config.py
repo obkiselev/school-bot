@@ -148,24 +148,81 @@ class Settings(BaseSettings):
 
     # Quiz settings (темы и уровни для тестирования по языкам)
     TOPICS: dict = Field(default={
-        "English": [
-            "Present Simple and Present Continuous",
-            "Past Simple",
-            "Vocabulary: School and Daily Life",
-            "Vocabulary: Family, Hobbies, and Travel",
-            "Reading Comprehension: Short Texts",
-        ],
-        "Spanish": [
-            "Basic Vocabulary: Colors, Numbers, Days of the Week",
-            "Family and School Vocabulary",
-            "Present Tense: Regular Verbs (-ar, -er, -ir)",
-            "Greetings and Basic Phrases",
-            "Food and Animals Vocabulary",
-        ],
+        "English": {
+            "A1": [
+                "Basic Greetings and Introductions",
+                "Colors, Numbers, and Classroom Objects",
+                "Family Members and Pets",
+                "Food and Drinks",
+                "Daily Routines (am/pm, days of week)",
+            ],
+            "A2": [
+                "Present Simple and Present Continuous",
+                "Past Simple",
+                "Vocabulary: School and Daily Life",
+                "Vocabulary: Family, Hobbies, and Travel",
+                "Reading Comprehension: Short Texts",
+            ],
+            "B1": [
+                "Present Perfect vs Past Simple",
+                "Conditionals (First and Second)",
+                "Passive Voice",
+                "Vocabulary: Environment and Technology",
+                "Reading Comprehension: Articles",
+            ],
+            "B2": [
+                "Advanced Tenses (Perfect Continuous)",
+                "Reported Speech",
+                "Conditionals (Third, Mixed)",
+                "Vocabulary: Academic and Abstract Topics",
+                "Reading Comprehension: Complex Texts",
+            ],
+            "C1": [
+                "Subjunctive and Formal Registers",
+                "Idiomatic Expressions",
+                "Advanced Writing Structures",
+                "Nuanced Vocabulary: Synonyms and Collocations",
+                "Critical Reading and Inference",
+            ],
+        },
+        "Spanish": {
+            "A1": [
+                "Basic Vocabulary: Colors, Numbers, Days of the Week",
+                "Family and School Vocabulary",
+                "Present Tense: Regular Verbs (-ar, -er, -ir)",
+                "Greetings and Basic Phrases",
+                "Food and Animals Vocabulary",
+            ],
+            "A1-A2": [
+                "Irregular Present Tense (ser, estar, ir, tener)",
+                "Basic Past Tense (regular verbs)",
+                "Describing People and Places",
+                "Shopping and Directions",
+                "Weather and Seasons",
+            ],
+            "A2": [
+                "Past Tense: Irregular Verbs",
+                "Imperfecto vs Indefinido",
+                "Reflexive Verbs",
+                "Vocabulary: Travel and Transport",
+                "Reading Comprehension: Short Stories",
+            ],
+            "B1": [
+                "Subjuntivo: Present (quiero que, es importante que)",
+                "Conditional Tense",
+                "Por vs Para",
+                "Vocabulary: Work and Professions",
+                "Reading: News Articles",
+            ],
+        },
     })
     LEVEL_DESCRIPTIONS: dict = Field(default={
-        "English": "5th grader studying English for the 5th year (intermediate level, knows basic tenses and vocabulary)",
-        "Spanish": "5th grader studying Spanish for the 1st year (complete beginner, basic vocabulary and simple present tense only)",
+        "A1": "complete beginner (basic vocabulary, simple present tense, very short sentences)",
+        "A1-A2": "elementary learner (basic grammar, simple past tense, can describe familiar topics)",
+        "A2": "elementary-intermediate learner (knows basic tenses, everyday vocabulary, simple conversations)",
+        "B1": "intermediate learner (can discuss familiar topics, understands main ideas, uses various tenses)",
+        "B2": "upper-intermediate learner (can discuss abstract topics, understands complex texts, uses advanced grammar)",
+        "C1": "advanced learner (near-native comprehension, nuanced vocabulary, complex grammar structures)",
     })
     QUESTION_COUNTS: list = Field(default=[5, 10, 15, 20])
 

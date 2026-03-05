@@ -17,6 +17,7 @@ async def count_selected(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     language = data["language"]
     topic = data["topic"]
+    level = data.get("level", "A2")
 
     lang_flag = "🇬🇧" if language == "English" else "🇪🇸"
 
@@ -24,6 +25,7 @@ async def count_selected(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"⏳ Генерирую тест...\n\n"
         f"{lang_flag} Язык: {language}\n"
+        f"📊 Уровень: {level}\n"
         f"📚 Тема: {topic}\n"
         f"❓ Вопросов: {count}\n\n"
         f"Подожди немного, это займёт 10-20 секунд..."
@@ -33,7 +35,7 @@ async def count_selected(callback: CallbackQuery, state: FSMContext):
     from services.test_generator import generate_test
     from handlers.quiz import start_quiz
 
-    questions = await generate_test(language, topic, count, user_id=callback.from_user.id)
+    questions = await generate_test(language, topic, count, user_id=callback.from_user.id, level=level)
 
     if not questions:
         await callback.message.edit_text(

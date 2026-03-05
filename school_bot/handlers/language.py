@@ -7,8 +7,9 @@ from aiogram.fsm.context import FSMContext
 from datetime import date
 
 from states.quiz_states import QuizFlow
-from keyboards.quiz_kb import language_keyboard, topic_keyboard
+from keyboards.quiz_kb import language_keyboard, topic_keyboard, level_keyboard
 from keyboards.main_menu import quiz_home_keyboard
+from services.level_adapter import get_user_level, DEFAULT_LEVEL
 
 router = Router()
 
@@ -52,7 +53,8 @@ async def daily_challenge(callback: CallbackQuery, state: FSMContext):
 
     if challenge:
         # Start quiz with the challenge topic
-        await state.update_data(language=challenge["subject"], topic=challenge["topic"])
+        user_level = await get_user_level(user_id, challenge["subject"]) or DEFAULT_LEVEL
+        await state.update_data(language=challenge["subject"], topic=challenge["topic"], level=user_level)
         await state.set_state(QuizFlow.choosing_question_count)
         from keyboards.quiz_kb import question_count_keyboard
         await callback.message.edit_text(
@@ -78,7 +80,8 @@ async def daily_challenge(callback: CallbackQuery, state: FSMContext):
     from database.crud import create_daily_challenge
     await create_daily_challenge(user_id, today, subject, topic)
 
-    await state.update_data(language=subject, topic=topic)
+    user_level = await get_user_level(user_id, subject) or DEFAULT_LEVEL
+    await state.update_data(language=subject, topic=topic, level=user_level)
     await state.set_state(QuizFlow.choosing_question_count)
     from keyboards.quiz_kb import question_count_keyboard
     await callback.message.edit_text(
@@ -95,11 +98,42 @@ async def daily_challenge(callback: CallbackQuery, state: FSMContext):
 async def language_selected(callback: CallbackQuery, state: FSMContext):
     language = callback.data.split(":")[1]
     await state.update_data(language=language)
+
+    user_id = callback.from_user.id
+    auto_level = await get_user_level(user_id, language)
+
+    if auto_level:
+        # Student — level auto-detected, skip to topic selection
+        await state.update_data(level=auto_level)
+        await state.set_state(QuizFlow.choosing_topic)
+        lang_name = "английскому" if language == "English" else "испанскому"
+        await callback.message.edit_text(
+            f"📚 Уровень: {auto_level}\n"
+            f"Выбери тему по {lang_name} языку:",
+            reply_markup=topic_keyboard(language, auto_level),
+        )
+    else:
+        # Parent/admin — show level selection
+        await state.set_state(QuizFlow.choosing_level)
+        await callback.message.edit_text(
+            f"📊 Выбери уровень сложности:",
+            reply_markup=level_keyboard(language),
+        )
+    await callback.answer()
+
+
+@router.callback_query(QuizFlow.choosing_level, F.data.startswith("level:"))
+async def level_selected(callback: CallbackQuery, state: FSMContext):
+    level = callback.data.split(":")[1]
+    data = await state.get_data()
+    language = data["language"]
+    await state.update_data(level=level)
     await state.set_state(QuizFlow.choosing_topic)
 
     lang_name = "английскому" if language == "English" else "испанскому"
     await callback.message.edit_text(
-        f"📚 Выбери тему по {lang_name} языку:",
-        reply_markup=topic_keyboard(language),
+        f"📚 Уровень: {level}\n"
+        f"Выбери тему по {lang_name} языку:",
+        reply_markup=topic_keyboard(language, level),
     )
     await callback.answer()

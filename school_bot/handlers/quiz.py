@@ -170,10 +170,11 @@ async def _show_results(message: Message, state: FSMContext):
     percent = round(correct / actual_total * 100) if actual_total > 0 else 0
 
     # Save test session to DB
+    difficulty = data.get("level")
     try:
         from database.crud import save_test_session
         if user_id:
-            await save_test_session(user_id, language, topic, actual_total, correct, percent, answers)
+            await save_test_session(user_id, language, topic, actual_total, correct, percent, answers, difficulty=difficulty)
     except Exception as e:
         logger.error("Failed to save test session for user_id=%s: %s", user_id, e)
 

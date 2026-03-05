@@ -154,6 +154,23 @@ async def _run_migrations(conn: aiosqlite.Connection):
                     logger.debug("Migration 005 statement skipped: %s", e)
         await conn.commit()
 
+    # Миграция 006: adaptive difficulty (колонка difficulty в test_sessions)
+    cursor = await conn.execute("PRAGMA table_info(test_sessions)")
+    ts_columns = {row[1] for row in await cursor.fetchall()}
+    if "difficulty" not in ts_columns:
+        migration_006 = migrations_dir / "006_adaptive_difficulty.sql"
+        if migration_006.exists():
+            with open(migration_006, "r", encoding="utf-8") as f:
+                sql = f.read()
+            for statement in sql.split(";"):
+                statement = statement.strip()
+                if statement:
+                    try:
+                        await conn.execute(statement)
+                    except Exception as e:
+                        logger.debug("Migration 006 statement skipped: %s", e)
+            await conn.commit()
+
     # Авто-создание главного админа (ADMIN_ID из .env)
     await _ensure_admin(conn)
 

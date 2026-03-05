@@ -736,15 +736,16 @@ async def save_test_session(
     correct: int,
     percent: float,
     answers: List[Dict],
+    difficulty: str | None = None,
 ) -> int:
     """Save a completed test session and its individual question results."""
     db = get_db()
     conn = await db.connect()
 
     cursor = await conn.execute(
-        """INSERT INTO test_sessions (user_id, language, topic, total_questions, correct_answers, score_percent)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (user_id, language, topic, total, correct, percent),
+        """INSERT INTO test_sessions (user_id, language, topic, total_questions, correct_answers, score_percent, difficulty)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, language, topic, total, correct, percent, difficulty),
     )
     session_id = cursor.lastrowid
 

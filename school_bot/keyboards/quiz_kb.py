@@ -3,6 +3,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import settings
 from keyboards.main_menu import home_button
+from services.level_adapter import AVAILABLE_LEVELS
 
 
 def language_keyboard() -> InlineKeyboardMarkup:
@@ -13,8 +14,29 @@ def language_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def topic_keyboard(language: str) -> InlineKeyboardMarkup:
-    topics = settings.TOPICS.get(language, [])
+def level_keyboard(language: str) -> InlineKeyboardMarkup:
+    """Keyboard for manual CEFR level selection (parent/admin)."""
+    levels = AVAILABLE_LEVELS.get(language, ["A2"])
+    buttons = []
+    for lvl in levels:
+        desc = settings.LEVEL_DESCRIPTIONS.get(lvl, "")
+        short_desc = desc.split("(")[0].strip() if desc else lvl
+        buttons.append([InlineKeyboardButton(
+            text=f"{lvl} — {short_desc}",
+            callback_data=f"level:{lvl}",
+        )])
+    buttons.append([InlineKeyboardButton(text="🔙 Назад к выбору языка", callback_data="start_test")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def topic_keyboard(language: str, level: str | None = None) -> InlineKeyboardMarkup:
+    lang_topics = settings.TOPICS.get(language, {})
+    if isinstance(lang_topics, dict) and level:
+        topics = lang_topics.get(level, [])
+    elif isinstance(lang_topics, list):
+        topics = lang_topics
+    else:
+        topics = []
     buttons = []
     for i, topic in enumerate(topics):
         buttons.append([InlineKeyboardButton(text=topic, callback_data=f"topic:{i}")])

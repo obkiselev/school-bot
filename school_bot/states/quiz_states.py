@@ -4,6 +4,7 @@ from aiogram.fsm.state import StatesGroup, State
 
 class QuizFlow(StatesGroup):
     choosing_language = State()
+    choosing_level = State()
     choosing_topic = State()
     entering_custom_topic = State()
     choosing_question_count = State()
