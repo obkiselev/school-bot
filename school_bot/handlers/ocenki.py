@@ -9,8 +9,8 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
-from database.crud import get_user, get_user_children, invalidate_token
-from keyboards.main_menu import home_button
+from database.crud import get_user, get_user_children, get_user_role, invalidate_token
+from keyboards.main_menu import home_button, back_button
 from mesh_api.client import MeshClient
 from mesh_api.exceptions import AuthenticationError, MeshAPIError
 from mesh_api.models import Grade
@@ -147,7 +147,7 @@ def _get_period_keyboard(student_id: int) -> InlineKeyboardMarkup:
                 callback_data=f"ocenki:period:{student_id}:month"
             ),
         ],
-        [home_button()],
+        [back_button("ocenki:back"), home_button()],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -161,7 +161,7 @@ def _get_retry_keyboard(student_id: int, period: str) -> InlineKeyboardMarkup:
                 callback_data=f"ocenki:retry:{student_id}:{period}"
             )
         ],
-        [home_button()],
+        [back_button("ocenki:back"), home_button()],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -524,3 +524,35 @@ async def cb_retry(callback: CallbackQuery):
         return
 
     await _handle_grades_request(callback, student_id, period)
+
+
+# ============================================================================
+# ОБРАБОТЧИК КНОПКИ «НАЗАД»
+# ============================================================================
+
+@router.callback_query(F.data == "ocenki:back")
+async def cb_back(callback: CallbackQuery):
+    """Назад: к выбору ребёнка (если >1) или в главное меню."""
+    await callback.answer()
+    user_id = callback.from_user.id
+
+    children = await get_user_children(user_id)
+    if len(children) > 1:
+        keyboard = _get_child_keyboard(children)
+        await callback.message.edit_text(
+            "Выберите ребёнка для просмотра оценок:",
+            reply_markup=keyboard,
+        )
+    else:
+        from keyboards.main_menu import full_menu_keyboard, student_menu_keyboard
+        role = await get_user_role(user_id)
+        if role == "student":
+            await callback.message.edit_text(
+                "👋 Выбери, что хочешь сделать:",
+                reply_markup=student_menu_keyboard(),
+            )
+        else:
+            await callback.message.edit_text(
+                "Главное меню:",
+                reply_markup=full_menu_keyboard(),
+            )

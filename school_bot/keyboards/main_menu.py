@@ -7,6 +7,11 @@ def home_button() -> InlineKeyboardButton:
     return InlineKeyboardButton(text="🏠 Главное меню", callback_data="go_home")
 
 
+def back_button(callback_data: str) -> InlineKeyboardButton:
+    """Reusable 'back one step' button for any keyboard."""
+    return InlineKeyboardButton(text="◀️ Назад", callback_data=callback_data)
+
+
 def full_menu_keyboard() -> InlineKeyboardMarkup:
     """Full menu for admin and parent (all features)."""
     return InlineKeyboardMarkup(inline_keyboard=[
