@@ -1,64 +1,11 @@
-# Инструкции для Claude в рамках проекта School Bot
+# Инструкции для Claude — School Bot
 
-## 1. Перед началом любой работы обязательно прочитай актуальное состояние проекта:
-- Открой файл `PROGRESS.md` и проверь/обнови текущий прогресс по задачам и фазам.
-- Ориентируйся на текущую фазу разработки при выполнении задач.
-- Не пушить на GIT.
+> Общие правила (версионирование, git, фиксация результатов) — см. глобальный CLAUDE.md.
+> Здесь только специфика проекта.
 
-## 2. Перед завершением любой сессии обязательно обнови:
-- Текущую версию проекта определяй по `PROGRESS.md`
-- Увеличивай последнюю цифру: 0.1.0 -> 0.1.1 -> ... -> 0.1.9 -> 0.2.0 -> 0.2.1 -> ... -> 0.2.9 -> 0.3.0. Никаких двузначных номеров — 0.1.10 не существует, после 0.1.9 всегда идёт 0.2.0.
-- Обнови файлы:
-  - `PROGRESS.md` — перенести завершённые задачи из "в планах" в завершённые, обновить changelog.
-  - `README.md` — обновить номер версии, добавить новый функционал и прогресс по фазам разработки.
-  - `requirements.txt` - обновить список пакетов
-  - Другие файлы, в которых указана текущая версия.
-- Git-операции:
-  - `git add PROGRESS.md README.md` (и другие изменённые файлы)
-  - `git commit -m "vX.Y.Z: краткое описание изменений"`
-  - `git tag vX.Y.Z`
-  - `git push origin main --tags`
+## Агенты — информирование пользователя
 
-**Git push — без подтверждений:** пуш на GIT выполняй автоматически, без уточнений и подтверждений со стороны пользователя. Не спрашивай — просто пушь.
-
-В результате проект постоянно имеет актуальную документацию и удобную историю для отслеживания прогресса. Обновление/дополнение инструкций должно происходить через явное согласование.
-
-## 3. "Зафиксируй промежуточные результаты"
-
-Когда пользователь говорит зафиксировать промежуточные результаты:
-
-- Задеплоить на сервере автоматически все изменения в проекте
-- Обновить файл `PROGRESS.md` — добавить/обновить текущий прогресс по задачам в работе
-- Обновить файл `CLAUDE.md` — добавить/обновить инструкции
-- Обновить файл `requirements.txt` (при его наличии) — добавить/обновить список пакетов
-- другие файлы, в которых ведется история изменений
-- На GIT пушить НЕ надо.
-
-## 4. "Зафиксируй текущую версию" (релиз)
-
-Когда пользователь просит зафиксировать версию:
-
-1. Определить текущую версию из `PROGRESS.md`
-2. Определить следующую версию (инкремент minor: 0.1.9 → 0.2.0, или по указанию пользователя)
-3. Обновить файлы:
-   - `PROGRESS.md` — перенести текущие задачи из "в работе" в завершённые, обновить changelog
-   - `README.md` — обновить номер версии, добавить новые возможности в описание
-   - `requirements.txt` — обновить список пакетов
-   - другие файлы, в которых ведется история изменений
-4. Git-операции:
-   - `git add PROGRESS.md README.md requirements.txt` (и другие изменённые файлы)
-   - `git commit -m "vX.Y.Z: краткое описание изменений"`
-   - `git tag vX.Y.Z`
-   - `git push origin main --tags`
-
-## 5. Использование агентов — информирование пользователя
-
-При выполнении задач по возможности используй существующих агентов (Agent tool). Перед запуском агента или группы агентов **обязательно сообщи пользователю**:
-- Какой именно агент (или агенты) будет задействован и зачем.
-- Если запускается несколько агентов параллельно — перечисли их все и кратко опиши роль каждого.
-- После завершения работы агента — сообщи результат.
-
-Пример: «Сейчас запущу агента Explore для поиска нужных файлов и агента general-purpose для анализа зависимостей — они будут работать параллельно.»
+При запуске агентов обязательно сообщи пользователю: какой агент, зачем, результат.
 
 ## О проекте
 
@@ -72,63 +19,52 @@
 
 ## Ролевая система
 
-- **admin** — полный доступ: расписание, оценки, ДЗ, тесты + управление пользователями
-- **parent** — полный доступ: расписание, оценки, ДЗ, тесты (без управления пользователями)
-- **student** — ограниченный: расписание, ДЗ, тесты (без оценок, без админки)
-- Доступ только через админа (`/allow <id> role`)
-- Главный админ (ADMIN_ID) неудаляем, создаётся автоматически
-- Telegram Menu (кнопка «Меню») показывает команды под роль пользователя через `BotCommandScopeChat`
+- **admin** — полный доступ + управление пользователями
+- **parent** — полный доступ (без управления пользователями)
+- **student** — ограниченный: расписание, ДЗ, тесты (без оценок)
+- Доступ через админа (`/allow <id> role`), главный админ (ADMIN_ID) неудаляем
 - Клавиатуры: `full_menu_keyboard()` (admin/parent), `student_menu_keyboard()` (student)
 
 ## Структура проекта
 
 ```
 school_bot/
-├── bot.py              # Точка входа
-├── config.py           # Настройки (pydantic-settings)
-├── core/               # database.py, encryption.py
-├── mesh_api/           # auth.py, client.py, endpoints.py, models.py, exceptions.py, proxy_patch.py
-├── handlers/           # start.py, registration.py, schedule.py, ocenki.py, dz.py, admin.py, quiz.py, language.py, topic.py, quiz_settings.py, history.py, settings.py, profile.py
-├── keyboards/          # main_menu.py (меню по ролям), quiz_kb.py (клавиатуры квизов)
-├── middlewares/         # access.py (Access Control), throttle.py (Anti-spam)
-├── llm/                # client.py, prompts.py, parser.py (LM Studio интеграция)
-├── services/           # test_generator.py, answer_checker.py, progress_tracker.py, notification_service.py
-├── states/             # registration.py, quiz_states.py
-├── database/           # crud.py, migrations/init.sql, 002_octodiary.sql, 003_add_quiz_and_access.sql
-├── utils/              # token_manager.py, rate_limiter.py
-├── tests/              # test_schedule.py, conftest.py
-└── data/               # SQLite БД, логи
+├── bot.py, config.py
+├── core/           — database.py, encryption.py
+├── mesh_api/       — auth.py, client.py, endpoints.py, models.py, exceptions.py
+├── handlers/       — start, registration, schedule, ocenki, dz, admin, quiz, settings, profile...
+├── keyboards/      — main_menu.py, quiz_kb.py
+├── middlewares/     — access.py (ACL), throttle.py (anti-spam)
+├── llm/            — client.py, prompts.py, parser.py
+├── services/       — test_generator, answer_checker, progress_tracker, notification_service
+├── states/         — registration.py, quiz_states.py
+├── database/       — crud.py, migrations/
+├── utils/          — token_manager.py, rate_limiter.py
+└── data/           — SQLite БД, логи
 ```
 
-## Навигация (кнопки возврата)
+## Навигация
 
-- Единая кнопка «🏠 Главное меню» — функция `home_button()` в `keyboards/main_menu.py`
-- Все клавиатуры используют `home_button()` для кнопки возврата (не хардкод)
-- Callback `go_home` обрабатывается в `handlers/start.py` — очищает FSM, показывает меню по роли
-- Оценки (`/ocenki`) — handler в `handlers/ocenki.py`, callback namespace `ocenki:`
-- Домашние задания (`/dz`) — handler в `handlers/dz.py`, callback namespace `dz:`
-- Оба handler-а используют `profile_id` из `users.mesh_profile_id` (не `person_id` как расписание)
+- Кнопка «🏠 Главное меню» — `home_button()` в `keyboards/main_menu.py`
+- Callback `go_home` в `handlers/start.py` — очищает FSM, меню по роли
+- Оценки: `handlers/ocenki.py`, namespace `ocenki:`
+- ДЗ: `handlers/dz.py`, namespace `dz:`
+- Оба используют `profile_id` из `users.mesh_profile_id`
 
-## Уведомления (Фаза 3)
+## Уведомления
 
-- **APScheduler** (AsyncIOScheduler) — интегрирован в event loop aiogram в `bot.py`
-- Оценки: ежедневно в 18:00 (настройка `GRADES_NOTIFICATION_TIME` в .env)
-- ДЗ: ежедневно в 19:00 (настройка `HOMEWORK_NOTIFICATION_TIME` в .env)
-- Таймзона: `TIMEZONE=Europe/Moscow` (в .env)
-- Сервис: `services/notification_service.py` — ядро уведомлений
-- Handler: `handlers/settings.py` — `/settings`, callback namespace `settings:`
-- Кеш: таблицы `grades_cache`, `homework_cache` с флагом `is_notified` — защита от дубликатов
-- Оценки → только admin/parent. ДЗ → все роли
-- Rate limit: пауза 2.5 сек между пользователями при рассылке
-- TelegramForbiddenError → автоотключение уведомлений для пользователя
+- APScheduler в event loop aiogram (`bot.py`)
+- Оценки: 18:00, ДЗ: 19:00 (настройки в .env)
+- Сервис: `services/notification_service.py`
+- Кеш: таблицы `grades_cache`, `homework_cache` с `is_notified`
+- Rate limit: 2.5 сек между пользователями
+- TelegramForbiddenError → автоотключение уведомлений
+- **ИЗВЕСТНАЯ ПРОБЛЕМА**: если бот выключен в момент 18:00 или 19:00, уведомления пропускаются безвозвратно (APScheduler CronTrigger не запускает задним числом). Решение в работе — см. PROGRESS.md v0.4.1.
 
 ## Важные детали
 
-- Пароли МЭШ хранятся зашифрованными (Fernet), ключ в .env
-- FSM используется для пошаговой регистрации и квизов
+- Пароли МЭШ зашифрованы (Fernet), ключ в .env
 - МЭШ API неофициальное — может сломаться
-- Rate limit: не более 30 запросов/мин к МЭШ API
-- LLM (LM Studio) должен быть запущен локально для генерации тестов
-- Access Control Middleware проверяет роль при каждом запросе
-- **Браузер для Playwright/patchright**: после `pip install -r requirements.txt` нужно отдельно скачать браузер: `patchright install chromium`. Без этого авторизация через браузер не работает (ошибка "Executable doesn't exist")
-- **Авторизация МЭШ — двухуровневая** (HybridMeshAuth в `mesh_api/auth.py`): сначала curl_cffi (TLS impersonation), при неудаче — Playwright (stealth-браузер). curl_cffi даёт полные OAuth-токены для refresh, Playwright — сессионный токен
+- Rate limit: ≤30 запросов/мин к МЭШ API
+- Playwright: после pip install нужно `patchright install chromium`
+- Авторизация МЭШ двухуровневая (HybridMeshAuth): curl_cffi → Playwright fallback
