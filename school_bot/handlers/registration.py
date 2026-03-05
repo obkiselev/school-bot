@@ -10,7 +10,7 @@ from aiogram.exceptions import TelegramBadRequest
 from states.registration import RegistrationStates
 from database.crud import create_user, add_child, create_default_notifications, log_activity, get_user_role
 from keyboards.main_menu import full_menu_keyboard, student_menu_keyboard
-from mesh_api.auth import MeshAuth, _pending_auth, clear_pending_auth, check_auth_cooldown, record_auth_attempt
+from mesh_api.auth import MeshAuth, set_pending_auth, get_pending_auth, clear_pending_auth, check_auth_cooldown, record_auth_attempt, get_auth_lock, is_auth_in_progress
 from mesh_api.models import student_from_octodiary
 from mesh_api.exceptions import AuthenticationError, NetworkError, MeshAPIError
 
@@ -51,8 +51,8 @@ async def process_mesh_password(message: Message, state: FSMContext):
     # Delete message with password for security
     try:
         await message.delete()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to delete password message: %s", e)
 
     # Basic validation
     if not password or len(password) < 3:
@@ -78,15 +78,23 @@ async def process_mesh_password(message: Message, state: FSMContext):
         )
         return
 
+    # Проверка: не идёт ли уже авторизация для этого пользователя
+    if is_auth_in_progress(user_id):
+        await message.answer(
+            "Авторизация уже идёт, подождите завершения предыдущей попытки."
+        )
+        return
+
     # Show verification message
     verify_msg = await message.answer(
         "Подключаюсь к серверу МЭШ...\n"
         "Это может занять несколько секунд."
     )
 
-    # Try to authenticate
+    # Try to authenticate (with per-user lock)
     record_auth_attempt(user_id)
     auth = MeshAuth()
+    lock = get_auth_lock(user_id)
 
     async def on_retry(attempt: int, total: int) -> None:
         await verify_msg.edit_text(
@@ -94,45 +102,46 @@ async def process_mesh_password(message: Message, state: FSMContext):
             "Подождите ещё ~30 секунд."
         )
 
-    try:
-        result = await auth.start_login(login, password, on_retry=on_retry)
+    async with lock:
+        try:
+            result = await auth.start_login(login, password, on_retry=on_retry)
 
-        if result["status"] == "sms_required":
-            # Сохраняем сессию авторизации в памяти (не в FSM — объект несериализуемый)
-            _pending_auth[user_id] = auth
+            if result["status"] == "sms_required":
+                # Сохраняем сессию авторизации в памяти (не в FSM — объект несериализуемый)
+                set_pending_auth(user_id, auth)
 
-            await state.update_data(mesh_password=password)
-            await state.set_state(RegistrationStates.waiting_for_sms_code)
+                await state.update_data(mesh_password=password)
+                await state.set_state(RegistrationStates.waiting_for_sms_code)
 
-            contact = result.get("contact", "ваш телефон")
-            ttl = result.get("ttl", 300)
-            minutes = ttl // 60
+                contact = result.get("contact", "ваш телефон")
+                ttl = result.get("ttl", 300)
+                minutes = ttl // 60
 
+                await verify_msg.edit_text(
+                    f"На номер <b>{contact}</b> отправлен SMS-код.\n\n"
+                    f"Введите код из SMS (действует {minutes} мин.):",
+                    parse_mode="HTML"
+                )
+                return
+
+            # Прямой вход без SMS (редко)
+            await _process_auth_success(message, state, verify_msg, result, login, password)
+
+        except AuthenticationError as e:
             await verify_msg.edit_text(
-                f"На номер <b>{contact}</b> отправлен SMS-код.\n\n"
-                f"Введите код из SMS (действует {minutes} мин.):",
-                parse_mode="HTML"
+                f"Ошибка входа: {e}\n\n"
+                "Проверьте правильность логина и пароля, затем начните заново: /start"
             )
-            return
+            await state.clear()
+            clear_pending_auth(user_id)
 
-        # Прямой вход без SMS (редко)
-        await _process_auth_success(message, state, verify_msg, result, login, password)
-
-    except AuthenticationError as e:
-        await verify_msg.edit_text(
-            f"Ошибка входа: {e}\n\n"
-            "Проверьте правильность логина и пароля, затем начните заново: /start"
-        )
-        await state.clear()
-        clear_pending_auth(user_id)
-
-    except (NetworkError, MeshAPIError) as e:
-        await verify_msg.edit_text(
-            f"Ошибка сети: {e}\n\n"
-            "Попробуйте позже: /start"
-        )
-        await state.clear()
-        clear_pending_auth(user_id)
+        except (NetworkError, MeshAPIError) as e:
+            await verify_msg.edit_text(
+                f"Ошибка сети: {e}\n\n"
+                "Попробуйте позже: /start"
+            )
+            await state.clear()
+            clear_pending_auth(user_id)
 
 
 @router.message(RegistrationStates.waiting_for_sms_code)
@@ -147,7 +156,7 @@ async def process_sms_code(message: Message, state: FSMContext):
         return
 
     # Get pending auth session
-    auth = _pending_auth.get(user_id)
+    auth = get_pending_auth(user_id)
     if not auth:
         await message.answer(
             "Сессия авторизации истекла. Начните заново: /start"

@@ -86,14 +86,14 @@ class AccessControlMiddleware(BaseMiddleware):
         if isinstance(event, CallbackQuery):
             try:
                 await event.message.answer(BLOCKED_MSG)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to send deny message: %s", e)
             try:
                 await event.answer()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to answer callback: %s", e)
         elif isinstance(event, Message):
             try:
                 await event.answer(BLOCKED_MSG)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to send deny message: %s", e)

@@ -54,8 +54,8 @@ async def _check_server_reachable(proxy_url: str = None) -> bool:
         writer.close()
         try:
             await writer.wait_closed()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("writer.wait_closed failed: %s", e)
         return True
     except Exception as e:
         logger.debug("TCP pre-check %s failed: %s", label, e)
@@ -95,13 +95,30 @@ async def _check_curl_cffi_tls(proxy_url: str = None) -> bool:
 
 
 # Хранилище незавершённых сессий авторизации (ожидание SMS-кода).
-# Ключ — Telegram user_id, значение — объект MeshAuth с открытой сессией.
-# Очищается после завершения авторизации или по таймауту.
-_pending_auth: Dict[int, "MeshAuth"] = {}
+# Ключ — Telegram user_id, значение — (объект MeshAuth, timestamp).
+# Очищается после завершения авторизации или по таймауту (5 мин).
+_pending_auth: Dict[int, tuple] = {}
+_PENDING_AUTH_TTL = 300  # секунд (5 минут)
+
+# Per-user lock для защиты от одновременных авторизаций одного пользователя
+_auth_locks: Dict[int, asyncio.Lock] = {}
 
 # Кулдаун между попытками авторизации (защита от "долбёжки" сервера)
 _AUTH_COOLDOWN_SECONDS = 60
 _last_auth_attempt: Dict[int, float] = {}
+
+
+def get_auth_lock(user_id: int) -> asyncio.Lock:
+    """Получить per-user lock для авторизации."""
+    if user_id not in _auth_locks:
+        _auth_locks[user_id] = asyncio.Lock()
+    return _auth_locks[user_id]
+
+
+def is_auth_in_progress(user_id: int) -> bool:
+    """Проверить, идёт ли авторизация для пользователя."""
+    lock = _auth_locks.get(user_id)
+    return lock is not None and lock.locked()
 
 
 def check_auth_cooldown(user_id: int) -> Optional[int]:
@@ -124,9 +141,22 @@ def record_auth_attempt(user_id: int) -> None:
     _last_auth_attempt[user_id] = time.monotonic()
 
 
+def set_pending_auth(user_id: int, auth: "MeshAuth") -> None:
+    """Сохранить незавершённую сессию авторизации с timestamp."""
+    _pending_auth[user_id] = (auth, time.monotonic())
+
+
 def get_pending_auth(user_id: int) -> Optional["MeshAuth"]:
-    """Получить незавершённую сессию авторизации для пользователя."""
-    return _pending_auth.get(user_id)
+    """Получить незавершённую сессию авторизации. Возвращает None если истекла."""
+    entry = _pending_auth.get(user_id)
+    if entry is None:
+        return None
+    auth, created_at = entry
+    if time.monotonic() - created_at > _PENDING_AUTH_TTL:
+        logger.warning("Pending auth expired for user_id=%d (>%ds), cleaning up", user_id, _PENDING_AUTH_TTL)
+        _pending_auth.pop(user_id, None)
+        return None
+    return auth
 
 
 def clear_pending_auth(user_id: int) -> None:
@@ -179,11 +209,11 @@ async def _finalize_profile_and_children(api: AsyncMobileAPI):
             logger.error("Ошибка получения профиля: %s", e)
             raise NetworkError(f"Ошибка получения профиля: {e}")
 
-    # Шаг 1б: fallback для учеников — get_user_info (school.mos.ru/v3/userinfo)
-    # get_session_info (dnevnik.mos.ru) не работает с mesh_access_token (401),
-    # а get_user_info на school.mos.ru принимает тот же токен.
+    # Шаг 1б: fallback для учеников — каскад методов
     user_info = None
+    student_profile_from_fallback = None  # если получили через get_student_profiles
     if is_student_fallback or not profile_id:
+        # Попытка A: get_user_info (school.mos.ru/v3/userinfo)
         try:
             web_api = _make_web_api(api)
             user_info = await web_api.get_user_info()
@@ -194,8 +224,28 @@ async def _finalize_profile_and_children(api: AsyncMobileAPI):
                 profile_id, user_info.saved_choice, user_info.user_id,
             )
         except Exception as e:
-            logger.error("Ошибка получения user_info: %s", e)
-            raise NetworkError(f"Ошибка получения профиля (fallback): {e}")
+            logger.warning("get_user_info не удался: %s, пробуем get_student_profiles", e)
+
+        # Попытка B: get_student_profiles (без параметров — вернёт свой профиль)
+        if not profile_id:
+            try:
+                web_api = _make_web_api(api)
+                student_profiles = await web_api.get_student_profiles()
+                if student_profiles:
+                    sp = student_profiles[0] if isinstance(student_profiles, list) else student_profiles
+                    profile_id = sp.id
+                    mes_role = "student"
+                    student_profile_from_fallback = sp
+                    logger.info(
+                        "get_student_profiles fallback: profile_id=%s, person_id=%s",
+                        sp.id, getattr(sp, "person_id", None),
+                    )
+            except Exception as e2:
+                logger.error("get_student_profiles тоже не удался: %s", e2)
+                raise NetworkError(
+                    f"Ошибка получения профиля ученика. "
+                    f"Попробуйте позже или обратитесь к администратору."
+                )
 
     if not profile_id:
         raise AuthenticationError("Профиль не найден")
@@ -217,23 +267,32 @@ async def _finalize_profile_and_children(api: AsyncMobileAPI):
             logger.error("Ошибка получения семейного профиля: %s", e)
             raise NetworkError(f"Ошибка получения семейного профиля: {e}")
 
-    # Шаг 3: если children пуст и это ученик — строим из get_student_profiles
-    if not children and is_student_fallback and user_info:
-        children = await _build_student_child(api, profile_id, user_info)
+    # Шаг 3: если children пуст и это ученик — строим из имеющихся данных
+    if not children and is_student_fallback:
+        children = await _build_student_child(
+            api, profile_id, user_info, student_profile_from_fallback,
+        )
 
     return profile_id, mes_role, children
 
 
-async def _build_student_child(api: AsyncMobileAPI, profile_id, user_info):
+async def _build_student_child(api: AsyncMobileAPI, profile_id, user_info=None,
+                               cached_student_profile=None):
     """Строит список из одного 'ребёнка' для ученического аккаунта.
 
     Ученик сам является ребёнком. Собираем Child-объект из данных
-    UserInfo (school.mos.ru/v3/userinfo) и (опционально) StudentProfile.
+    UserInfo и/или StudentProfile.
+
+    Args:
+        api: AsyncMobileAPI с токеном.
+        profile_id: ID профиля ученика.
+        user_info: Данные из get_user_info() (может быть None если fallback B).
+        cached_student_profile: StudentProfile уже полученный в fallback (не вызывать API повторно).
     """
     from octodiary.types.mobile.family_profile import Child, School
 
-    # Базовые данные из user_info
-    info = user_info.info
+    # Базовые данные из user_info (если есть)
+    info = user_info.info if user_info else None
     child = Child(
         id=profile_id,
         first_name=info.first_name if info else None,
@@ -242,33 +301,37 @@ async def _build_student_child(api: AsyncMobileAPI, profile_id, user_info):
         contingent_guid=info.guid if info else None,  # guid = person_id
     )
 
-    # Обогащаем данными из get_student_profiles (класс, школа) — AsyncWebAPI
-    try:
-        web_api = _make_web_api(api)
-        student_profiles = await web_api.get_student_profiles(
-            profile_id=profile_id,
-            profile_type="student",
-        )
-        if student_profiles:
-            sp = student_profiles[0] if isinstance(student_profiles, list) else student_profiles
-            child.id = getattr(sp, "id", None) or child.id
-            child.first_name = getattr(sp, "first_name", None) or child.first_name
-            child.last_name = getattr(sp, "last_name", None) or child.last_name
-            child.middle_name = getattr(sp, "middle_name", None) or child.middle_name
-            child.contingent_guid = getattr(sp, "person_id", None) or child.contingent_guid
-            if sp.class_unit:
-                child.class_name = sp.class_unit.name
-                child.class_unit_id = sp.class_unit.id
-            if sp.school_id:
-                child.school = School(id=sp.school_id)
-            logger.info(
-                "StudentProfile: id=%s, class=%s, person_id=%s",
-                sp.id, sp.class_unit.name if sp.class_unit else None,
-                sp.person_id,
+    # Обогащаем данными из StudentProfile (класс, школа)
+    sp = cached_student_profile  # используем кеш если есть
+    if not sp:
+        try:
+            web_api = _make_web_api(api)
+            student_profiles = await web_api.get_student_profiles(
+                profile_id=profile_id,
+                profile_type="student",
             )
-    except Exception as e:
-        logger.warning(
-            "get_student_profiles не удался (используем базовые данные): %s", e
+            if student_profiles:
+                sp = student_profiles[0] if isinstance(student_profiles, list) else student_profiles
+        except Exception as e:
+            logger.warning(
+                "get_student_profiles не удался (используем базовые данные): %s", e
+            )
+
+    if sp:
+        child.id = getattr(sp, "id", None) or child.id
+        child.first_name = getattr(sp, "first_name", None) or child.first_name
+        child.last_name = getattr(sp, "last_name", None) or child.last_name
+        child.middle_name = getattr(sp, "middle_name", None) or child.middle_name
+        child.contingent_guid = getattr(sp, "person_id", None) or child.contingent_guid
+        if sp.class_unit:
+            child.class_name = sp.class_unit.name
+            child.class_unit_id = sp.class_unit.id
+        if sp.school_id:
+            child.school = School(id=sp.school_id)
+        logger.info(
+            "StudentProfile: id=%s, class=%s, person_id=%s",
+            sp.id, sp.class_unit.name if sp.class_unit else None,
+            sp.person_id,
         )
 
     return [child]
@@ -297,8 +360,8 @@ class MeshAuth:
             session = getattr(self.api, "_login_info", {}).get("session")
             if session and not session.closed:
                 await session.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to close API session: %s", e)
 
     async def start_login(
         self,
@@ -498,8 +561,8 @@ class MeshAuth:
             proxy_settings = settings.get_proxy_settings()
             if proxy_settings:
                 api._socks_proxy = proxy_settings["curl_cffi"]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to configure proxy for token refresh: %s", e)
 
         try:
             new_token = await api.refresh_token(
@@ -562,8 +625,8 @@ class HybridMeshAuth:
             if proxy_settings:
                 proxy_url = proxy_settings["curl_cffi"]
                 logger.info("Прокси для авторизации: %s", proxy_settings["url"])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to configure proxy for auth: %s", e)
 
         # Шаг 1: TCP pre-check (прокси или login.mos.ru напрямую)
         tcp_ok = await _check_server_reachable(proxy_url)

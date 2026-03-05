@@ -58,8 +58,8 @@ def _read_stderr_thread(pipe, buffer: list):
             if isinstance(line, bytes):
                 line = line.decode(errors="replace")
             buffer.append(line)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("SSH stderr read error: %s", e)
 
 
 def _get_tunnel_port() -> int:
@@ -69,7 +69,7 @@ def _get_tunnel_port() -> int:
         try:
             return int(proxy_url.rsplit(":", 1)[-1])
         except ValueError:
-            pass
+            logger.debug("Invalid proxy port format: %s", proxy_url)
     return 1080
 
 

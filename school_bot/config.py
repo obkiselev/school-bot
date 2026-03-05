@@ -1,9 +1,10 @@
 """Configuration settings using pydantic-settings."""
+import re
 from typing import Optional
 from urllib.parse import urlparse
 
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -38,6 +39,26 @@ class Settings(BaseSettings):
         default="Europe/Moscow",
         description="Timezone for notifications"
     )
+
+    @field_validator("GRADES_NOTIFICATION_TIME", "HOMEWORK_NOTIFICATION_TIME")
+    @classmethod
+    def validate_time_format(cls, v: str) -> str:
+        if not re.match(r"^\d{1,2}:\d{2}$", v):
+            raise ValueError(f"Invalid time format '{v}', expected HH:MM")
+        h, m = v.split(":")
+        if not (0 <= int(h) <= 23 and 0 <= int(m) <= 59):
+            raise ValueError(f"Invalid time '{v}': hour 0-23, minute 0-59")
+        return v
+
+    @field_validator("TIMEZONE")
+    @classmethod
+    def validate_timezone(cls, v: str) -> str:
+        import pytz
+        try:
+            pytz.timezone(v)
+        except pytz.exceptions.UnknownTimeZoneError:
+            raise ValueError(f"Unknown timezone '{v}'")
+        return v
 
     # Browser Auth (Playwright/Patchright)
     MESH_AUTH_HEADLESS: bool = Field(

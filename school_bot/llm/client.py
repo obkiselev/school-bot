@@ -20,5 +20,5 @@ async def chat_completion(prompt: str, temperature: float = 0.7, max_tokens: int
         )
         return response.choices[0].message.content
     except Exception as e:
-        logger.error("LLM request failed: %s", e)
+        logger.error("LLM request failed (model=%s, prompt_len=%d): %s", settings.LLM_MODEL, len(prompt), e)
         return None

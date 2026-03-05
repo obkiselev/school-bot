@@ -52,8 +52,8 @@ class MeshClient:
             proxy_settings = settings.get_proxy_settings()
             if proxy_settings:
                 self.api._socks_proxy = proxy_settings["curl_cffi"]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to configure proxy settings: %s", e)
 
     async def get_schedule(
         self,

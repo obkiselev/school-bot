@@ -154,8 +154,8 @@ class PlaywrightMeshAuth:
             try:
                 await self._page.mouse.wheel(0, random.randint(50, 150))
                 await asyncio.sleep(random.uniform(0.3, 0.7))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Mouse scroll skipped: %s", e)
             await self._random_mouse_move()
             await self._human_type(login_input, login)
             logger.debug("Playwright: логин введён")
@@ -392,8 +392,8 @@ class PlaywrightMeshAuth:
             proxy_settings = settings.get_proxy_settings()
             if proxy_settings:
                 api._socks_proxy = proxy_settings["curl_cffi"]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to configure proxy for PW refresh: %s", e)
 
         try:
             new_token = await api.refresh_token(
@@ -602,8 +602,8 @@ class PlaywrightMeshAuth:
             proxy_settings = settings.get_proxy_settings()
             if proxy_settings:
                 api._socks_proxy = proxy_settings["curl_cffi"]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to configure proxy for PW finalize: %s", e)
 
         from .auth import _finalize_profile_and_children
         profile_id, mes_role, children = await _finalize_profile_and_children(api)
@@ -891,8 +891,8 @@ class PlaywrightMeshAuth:
             y = random.randint(100, 600)
             await self._page.mouse.move(x, y, steps=random.randint(5, 15))
             await asyncio.sleep(random.uniform(0.1, 0.3))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Mouse move skipped: %s", e)
 
     async def _wait_for_login_page(self) -> None:
         """Ждёт пока URL изменится на login.mos.ru (без ожидания load)."""
@@ -926,7 +926,8 @@ class PlaywrightMeshAuth:
                     await el.click()
                     logger.info("Playwright: кнопка МЭШID нажата (%s)", selector)
                     return
-            except Exception:
+            except Exception as e:
+                logger.debug("MESHID selector %s failed: %s", selector, e)
                 continue
 
         # Fallback: ищем любой элемент с текстом "МЭШID" через locator
@@ -936,8 +937,8 @@ class PlaywrightMeshAuth:
                 await loc.click()
                 logger.info("Playwright: кнопка МЭШID нажата (text locator)")
                 return
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to find/click MESHID button by text: %s", e)
 
         logger.warning("Playwright: кнопка МЭШID не найдена")
         await self._screenshot("1_no_meshid_button")
@@ -1009,8 +1010,8 @@ class PlaywrightMeshAuth:
                     raise AuthenticationError(f"Ошибка входа: {text}")
             except AuthenticationError:
                 raise
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Error element check skipped: %s", e)
 
         # Проверка полного текста страницы на "подозрительную активность"
         try:
@@ -1020,8 +1021,8 @@ class PlaywrightMeshAuth:
                 raise AuthenticationError(_suspicious_msg)
         except AuthenticationError:
             raise
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Page text check skipped: %s", e)
 
     async def _check_for_sms_error(self) -> None:
         """Проверяет ошибку после ввода SMS-кода."""
@@ -1037,8 +1038,8 @@ class PlaywrightMeshAuth:
                 )
         except AuthenticationError:
             raise
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("SMS error check skipped: %s", e)
 
     async def _extract_phone_contact(self) -> str:
         """Извлекает маскированный номер телефона со страницы SMS."""
@@ -1052,8 +1053,8 @@ class PlaywrightMeshAuth:
                 match = re.search(pattern, page_text)
                 if match:
                     return match.group(0).strip()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to extract phone contact: %s", e)
         return "ваш телефон"
 
     async def _screenshot(self, step: str) -> None:
@@ -1089,8 +1090,8 @@ class PlaywrightMeshAuth:
             proxy_settings = settings.get_proxy_settings()
             if proxy_settings:
                 proxy = proxy_settings["playwright"]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to configure Playwright settings: %s", e)
 
         logger.info(
             "Playwright: запускаем стелс-Chromium (headless=%s, stealth=%s, proxy=%s)...",
@@ -1110,6 +1111,18 @@ class PlaywrightMeshAuth:
 
     async def _close_browser(self) -> None:
         """Закрывает браузер и освобождает ресурсы."""
+        # Отменяем зависший Future
+        if self._auth_complete and not self._auth_complete.done():
+            self._auth_complete.cancel()
+            self._auth_complete = None
+
+        # Удаляем обработчик response перед закрытием страницы
+        if self._page:
+            try:
+                self._page.remove_listener("response", self._on_response)
+            except Exception as e:
+                logger.debug("Failed to remove response listener: %s", e)
+
         for name, attr, method in [
             ("page", "_page", "close"),
             ("context", "_context", "close"),
@@ -1120,7 +1133,7 @@ class PlaywrightMeshAuth:
             if obj:
                 try:
                     await getattr(obj, method)()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to cleanup %s: %s", name, e)
                 setattr(self, attr, None)
         logger.debug("Playwright: браузер закрыт")

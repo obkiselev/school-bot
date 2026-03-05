@@ -24,8 +24,8 @@ async def _close_octodiary_session(api) -> None:
         session = getattr(api, "_login_info", {}).get("session")
         if session and not session.closed:
             await session.close()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to close OctoDiary session: %s", e)
 
 
 async def _set_user_commands(bot, user_id: int, role: str):

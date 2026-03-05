@@ -1,7 +1,10 @@
 """Quiz flow handlers — answering questions, cancel, results."""
+import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
+
+logger = logging.getLogger(__name__)
 
 from states.quiz_states import QuizFlow
 from services.answer_checker import check_answer
@@ -162,8 +165,8 @@ async def _show_results(message: Message, state: FSMContext):
         user_id = data.get("user_id")
         if user_id:
             await save_test_session(user_id, language, topic, actual_total, correct, percent, answers)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error("Failed to save test session for user_id=%s: %s", data.get("user_id"), e)
 
     await state.clear()
     await message.answer(text, reply_markup=quiz_home_keyboard())

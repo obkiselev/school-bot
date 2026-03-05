@@ -72,6 +72,15 @@ def init_scheduler(bot: Bot) -> AsyncIOScheduler:
         replace_existing=True,
     )
 
+    # Очистка устаревших записей кеша при старте
+    # (если бот был выключен, is_notified=0 записи — уже неактуальны)
+    scheduler.add_job(
+        _cleanup_stale_cache_on_start,
+        "date",  # одноразовый запуск
+        id="startup_cache_cleanup",
+        replace_existing=True,
+    )
+
     return scheduler
 
 
@@ -220,7 +229,8 @@ async def _process_homework_for_user(user_id: int, subs: list):
     """Обработать уведомления о ДЗ для одного пользователя."""
     try:
         token = await ensure_token(user_id)
-    except Exception:
+    except Exception as e:
+        logger.warning("Уведомления ДЗ: не удалось получить токен для user_id=%d: %s", user_id, e)
         return
 
     if not token:
@@ -330,26 +340,56 @@ def _format_homework_notification(all_new_hw: list) -> str:
 # ОТПРАВКА
 # ============================================================================
 
-async def _safe_send_message(user_id: int, text: str):
-    """Отправить сообщение с обработкой ошибок Telegram."""
+_SEND_RETRIES = 3
+_SEND_RETRY_DELAY = 3  # секунд
+
+
+async def _safe_send_message(user_id: int, text: str) -> bool:
+    """Отправить сообщение с обработкой ошибок Telegram. Возвращает True при успехе."""
     if not _bot:
         logger.error("Уведомления: bot не инициализирован")
-        return
+        return False
 
-    try:
-        await _bot.send_message(user_id, text, parse_mode="HTML")
-    except TelegramForbiddenError:
-        logger.warning("Уведомления: бот заблокирован user_id=%d, отключаю уведомления", user_id)
-        await disable_all_notifications(user_id)
-    except TelegramBadRequest as e:
-        logger.error("Уведомления: ошибка отправки user_id=%d: %s", user_id, e)
-    except Exception as e:
-        logger.error("Уведомления: неизвестная ошибка user_id=%d: %s", user_id, e)
+    for attempt in range(_SEND_RETRIES):
+        try:
+            await _bot.send_message(user_id, text, parse_mode="HTML")
+            return True
+        except TelegramForbiddenError:
+            logger.warning("Уведомления: бот заблокирован user_id=%d, отключаю уведомления", user_id)
+            await disable_all_notifications(user_id)
+            return False
+        except TelegramBadRequest as e:
+            logger.error("Уведомления: ошибка отправки user_id=%d: %s", user_id, e)
+            return False
+        except Exception as e:
+            if attempt < _SEND_RETRIES - 1:
+                logger.warning("Уведомления: retry %d/%d для user_id=%d: %s",
+                               attempt + 1, _SEND_RETRIES, user_id, e)
+                await asyncio.sleep(_SEND_RETRY_DELAY)
+            else:
+                logger.error("Уведомления: не удалось отправить user_id=%d после %d попыток: %s",
+                             user_id, _SEND_RETRIES, e)
+                return False
+    return False
 
 
 # ============================================================================
 # ОЧИСТКА КЕША
 # ============================================================================
+
+async def _cleanup_stale_cache_on_start():
+    """Помечает устаревшие записи кеша как отправленные при старте бота."""
+    from core.database import get_db
+    try:
+        db = get_db()
+        conn = await db.connect()
+        for table in ("grades_cache", "homework_cache"):
+            await conn.execute(f"UPDATE {table} SET is_notified = 1 WHERE is_notified = 0")
+        await conn.commit()
+        logger.info("Уведомления: устаревший кеш помечен как отправленный при старте")
+    except Exception as e:
+        logger.warning("Уведомления: не удалось очистить кеш при старте: %s", e)
+
 
 async def _cleanup_cache_job():
     """Еженедельная очистка старого кеша."""

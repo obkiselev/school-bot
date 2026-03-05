@@ -1,8 +1,8 @@
 # School Bot — Прогресс разработки
 
-## Текущая версия: 0.4.0
+## Текущая версия: 0.4.2
 
-## Статус: Фаза 4 частично — rate limiting, /help, /profile, фикс регистрации ученика
+## Статус: Фаза 4 — стабилизация (логирование, уведомления, race conditions, валидация)
 
 ---
 
@@ -68,6 +68,7 @@
 - [x] Баг-фикс: get_user() теперь возвращает role и is_blocked
 - [x] Баг-фикс: исправлены тесты TokenManager (MeshClient → MeshAuth)
 - [x] Баг-фикс: регистрация ученических аккаунтов (403 на profile_info → fallback через session_info)
+- [~] Баг-фикс: ошибка 499/E0002 при регистрации ученика — каскад fallback-ов (get_user_info → get_student_profiles)
 - [ ] Деплой на VPS
 
 ---
@@ -83,6 +84,103 @@
 ---
 
 ## Changelog
+
+### v0.4.2 — Стабилизация: логирование, retry уведомлений, race conditions, валидация
+
+**Логирование тихих ошибок (Приоритет 1):**
+- Заменены 26 `except: pass` на `except Exception as e: logger.warning/debug(...)` в 10 файлах
+- Критичное: `handlers/quiz.py` — результат теста не сохранялся молча, теперь logger.error
+- Миграции БД, прокси, SSH, Playwright, access middleware — все ошибки теперь видны в логах
+
+**Уведомления (Приоритет 2):**
+- `_safe_send_message()` — retry (3 попытки, 3 сек между) для временных ошибок сети
+- `_safe_send_message()` возвращает `bool` для подсчёта реально доставленных сообщений
+- Очистка кеша при старте бота — `is_notified=0` записи помечаются как доставленные (предотвращает повторную рассылку)
+
+**Race conditions (Приоритет 3):**
+- Per-user `asyncio.Lock` для авторизации — два одновременных `start_login` больше невозможны
+- `is_auth_in_progress()` — бот отвечает "авторизация уже идёт" при повторном нажатии
+
+**Валидация конфигурации (Приоритет 5):**
+- `@field_validator` для `GRADES_NOTIFICATION_TIME` и `HOMEWORK_NOTIFICATION_TIME` (формат HH:MM, час 0-23, минуты 0-59)
+- `@field_validator` для `TIMEZONE` (проверка через `pytz.timezone()`)
+- Невалидная конфигурация → ошибка при запуске бота, а не в рантайме
+
+**Ресурсы Playwright (Приоритет 6):**
+- `_close_browser()` — отменяет зависший Future `_auth_complete`
+- `_close_browser()` — удаляет обработчик `response` перед закрытием страницы
+- `_pending_auth` хранит timestamp — сессии старше 5 мин автоматически истекают
+- `set_pending_auth()` / `get_pending_auth()` — безопасный доступ вместо прямого `_pending_auth[uid]`
+
+**Изменённые файлы:**
+- `config.py` — валидаторы времени и timezone
+- `mesh_api/auth.py` — per-user lock, pending auth с TTL, set/get_pending_auth
+- `handlers/registration.py` — async with lock, is_auth_in_progress
+- `services/notification_service.py` — retry, кеш при старте
+- `mesh_api/playwright_auth.py` — очистка Future, response listener
+- `bot.py`, `core/database.py`, `handlers/quiz.py`, `handlers/start.py`, `mesh_api/client.py`, `middlewares/access.py`, `llm/client.py` — логирование ошибок
+
+### v0.4.1 — Кнопка «Назад» в навигации оценок, ДЗ и расписания
+
+(реализовано ранее, см. коммит fd94141)
+
+### v0.4.1-plan — Устойчивые уведомления: запуск пропущенных при старте бота (план, НЕ реализовано)
+
+**Проблема (2026-03-04):** Уведомления об оценках (18:00) и ДЗ (19:00) не пришли, потому что бот был выключен в оба момента. APScheduler с CronTrigger пропускает задачи, если бот не работал — задачи **не запускаются задним числом**. За день бот перезапускался 10+ раз из-за отладки регистрации учеников МЭШ.
+
+**Решение (НЕ ЗАВЕРШЕНА):**
+
+Нужно сделать 4 изменения:
+
+1. **Таблица `notification_runs`** в `database/migrations/init.sql` + миграция в `core/database.py`
+   - Столбцы: `id`, `notification_type` (grades/homework), `run_date` (DATE), `completed_at` (DATETIME)
+   - Хранит дату последней успешной отправки каждого типа уведомлений
+   - **Статус: НЕ СДЕЛАНО**
+
+2. **CRUD-функции** в `database/crud.py`
+   - `save_notification_run(notification_type, run_date)` — записать, что уведомление за эту дату отправлено
+   - `get_last_notification_run(notification_type)` — получить дату последнего запуска
+   - **Статус: НЕ СДЕЛАНО**
+
+3. **Логика пропущенных уведомлений** в `services/notification_service.py`
+   - `check_and_send_missed(bot)` — вызывается при старте бота:
+     - Читает `get_last_notification_run("grades")` — если сегодня не отправлялись и текущее время > 18:00 → отправить
+     - Аналогично для homework с 19:00
+   - В конце `_send_grades_notifications()` и `_send_homework_notifications()` — вызов `save_notification_run()`
+   - **Статус: НЕ СДЕЛАНО**
+
+4. **Изменения в `bot.py`**
+   - Добавить `misfire_grace_time=3600` и `coalesce=True` к job'ам APScheduler (строки 52-65 в notification_service.py)
+   - После `scheduler.start()` вызвать `await check_and_send_missed(bot)`
+   - **Статус: НЕ СДЕЛАНО**
+
+**Все файлы проекта прочитаны и проанализированы, код менять не начинали — только план.**
+
+**Файлы, которые нужно изменить:**
+- `database/migrations/init.sql` — добавить CREATE TABLE notification_runs
+- `core/database.py` — миграция для существующих БД (CREATE TABLE IF NOT EXISTS)
+- `database/crud.py` — 2 новые CRUD-функции
+- `services/notification_service.py` — check_and_send_missed() + save_notification_run() в конце задач
+- `bot.py` — misfire_grace_time + вызов check_and_send_missed при старте
+
+---
+
+### v0.4.0.1 — Фикс: 499/E0002 при регистрации ученика (каскад fallback-ов)
+
+**Проблема:** При регистрации ученического аккаунта МЭШ `get_user_info()` (`school.mos.ru/v3/userinfo`) стал возвращать 499 с кодом E0002.
+
+**Решение:**
+- Добавлен каскад fallback-ов в `_finalize_profile_and_children()`:
+  1. `get_users_profile_info()` — основной (для родителей)
+  2. `get_user_info()` — первый fallback (school.mos.ru/v3/userinfo)
+  3. `get_student_profiles()` — **новый** второй fallback (другой эндпоинт API)
+- `_build_student_child()` принимает кешированный `StudentProfile` из fallback — без повторного вызова API
+- Сообщение об ошибке упрощено (без технических деталей)
+
+**Статус:** Код готов, ожидает проверки при регистрации ученика (вторая ошибка "страница не загрузилась" — временная недоступность сервера МЭШ, не баг кода).
+
+**Изменённые файлы:**
+- `mesh_api/auth.py` — каскад fallback, обновлён `_build_student_child()`
 
 ### v0.4.0 — Фикс: 401 при регистрации ученика (get_user_info вместо get_session_info)
 
