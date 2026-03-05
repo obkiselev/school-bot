@@ -147,6 +147,12 @@ def _get_period_keyboard(student_id: int) -> InlineKeyboardMarkup:
                 callback_data=f"ocenki:period:{student_id}:month"
             ),
         ],
+        [
+            InlineKeyboardButton(
+                text="\U0001f4ca \u0410\u043d\u0430\u043b\u0438\u0442\u0438\u043a\u0430",
+                callback_data=f"analytics:period:{student_id}:week"
+            ),
+        ],
         [back_button("ocenki:back"), home_button()],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
