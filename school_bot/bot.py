@@ -292,14 +292,13 @@ async def main():
     global _ssh_tunnel_proc
     logger.info("Starting МЭШ School Bot...")
 
-    # SSH-туннель для прокси (если настроен)
-    ssh_tunnel = _start_ssh_tunnel()
-    _ssh_tunnel_proc = ssh_tunnel
-
-    # Фоновый мониторинг SSH-туннеля (запускаем всегда, если SSH настроен —
-    # монитор сам попробует поднять туннель, если первый запуск не удался)
-    if getattr(settings, "MESH_SSH_PROXY", False):
-        asyncio.create_task(_monitor_ssh_tunnel())
+    # SSH-туннель отключён — бот работает на сервере напрямую (v0.6.1).
+    # Для локальной разработки: включить MESH_SSH_PROXY=true в .env,
+    # раскомментировать блок ниже.
+    # ssh_tunnel = _start_ssh_tunnel()
+    # _ssh_tunnel_proc = ssh_tunnel
+    # if getattr(settings, "MESH_SSH_PROXY", False):
+    #     asyncio.create_task(_monitor_ssh_tunnel())
 
     # Initialize database
     logger.info(f"Initializing database at {settings.DATABASE_PATH}")
@@ -376,10 +375,11 @@ async def main():
         await bot.session.close()
         if db:
             await db.close()
-        if _ssh_tunnel_proc:
-            _ssh_tunnel_proc.kill()
-            _ssh_tunnel_proc.wait(timeout=5)
-            logger.info("SSH-туннель: закрыт")
+        # SSH-туннель отключён (v0.6.1) — бот на сервере.
+        # if _ssh_tunnel_proc:
+        #     _ssh_tunnel_proc.kill()
+        #     _ssh_tunnel_proc.wait(timeout=5)
+        #     logger.info("SSH-туннель: закрыт")
         logger.info("Bot stopped")
 
 
