@@ -1,9 +1,12 @@
 """CRUD operations for database."""
+import logging
 from typing import Optional, List, Dict
 from datetime import datetime
 
 from core.database import get_db
 from core.encryption import encrypt, decrypt
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -999,8 +1002,14 @@ async def create_daily_challenge(
                VALUES (?, ?, ?, ?, ?)""",
             (user_id, challenge_date, subject, topic, xp_reward),
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(
+            "Не удалось создать daily_challenge user_id=%s date=%s subject=%s: %s",
+            user_id,
+            challenge_date,
+            subject,
+            e,
+        )
 
 
 async def complete_daily_challenge(user_id: int, challenge_date: str) -> None:

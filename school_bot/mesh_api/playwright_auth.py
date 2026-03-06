@@ -209,7 +209,8 @@ class PlaywrightMeshAuth:
                     return await self._page.wait_for_selector(
                         sms_selectors, state="visible", timeout=_INPUT_WAIT_TIMEOUT
                     )
-                except Exception:
+                except Exception as e:
+                    logger.debug("Playwright: SMS input wait failed: %s", e)
                     return None
 
             async def _wait_token():
@@ -950,7 +951,8 @@ class PlaywrightMeshAuth:
             return await self._page.wait_for_selector(
                 combined, state="visible", timeout=timeout
             )
-        except Exception:
+        except Exception as e:
+            logger.debug("Playwright: input not found for selectors '%s': %s", combined, e)
             return None
 
     async def _click_submit(self) -> None:
@@ -973,7 +975,8 @@ class PlaywrightMeshAuth:
                     await asyncio.sleep(random.uniform(0.2, 0.5))
                     await el.click()
                     return
-            except Exception:
+            except Exception as e:
+                logger.debug("Playwright: submit selector '%s' failed: %s", selector, e)
                 continue
         # Fallback
         logger.debug("Playwright: кнопка submit не найдена, нажимаем Enter")

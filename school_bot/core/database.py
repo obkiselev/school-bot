@@ -107,7 +107,7 @@ async def _run_migrations(conn: aiosqlite.Connection):
                     try:
                         await conn.execute(statement)
                     except Exception as e:
-                        logger.debug("Migration 002 statement skipped: %s", e)
+                        logger.warning("Migration 002 statement skipped: %s", e)
             await conn.commit()
 
     # Миграция 003: тестирование по языкам + контроль доступа
@@ -122,7 +122,7 @@ async def _run_migrations(conn: aiosqlite.Connection):
                     try:
                         await conn.execute(statement)
                     except Exception as e:
-                        logger.debug("Migration 003 statement skipped: %s", e)
+                        logger.warning("Migration 003 statement skipped: %s", e)
             await conn.commit()
 
     # Миграция 004: таблица notification_runs (отслеживание пропущенных уведомлений)

@@ -378,8 +378,8 @@ async def toggle_child_selection(callback: CallbackQuery, state: FSMContext):
 
     try:
         await callback.message.edit_reply_markup(reply_markup=keyboard)
-    except TelegramBadRequest:
-        pass
+    except TelegramBadRequest as e:
+        logger.debug("Не удалось обновить клавиатуру выбора детей: %s", e)
     await callback.answer()
 
 

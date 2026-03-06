@@ -55,8 +55,8 @@ def _try_parse_json(text: str) -> list[dict] | None:
         data = json.loads(text)
         if isinstance(data, list):
             return data
-    except (json.JSONDecodeError, TypeError):
-        pass
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.debug("LLM JSON parse failed: %s", e)
     return None
 
 
