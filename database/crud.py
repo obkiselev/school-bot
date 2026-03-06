@@ -628,6 +628,37 @@ async def cleanup_old_cache(days: int = 30) -> None:
     )
 
 
+async def get_user_cache_summary(user_id: int) -> Dict:
+    """Получить сводку кеша оценок/ДЗ по пользователю."""
+    db = get_db()
+
+    grades_row = await db.fetchone(
+        """
+        SELECT COUNT(*), MAX(gc.created_at)
+        FROM grades_cache gc
+        JOIN children c ON c.child_id = gc.child_id
+        WHERE c.user_id = ?
+        """,
+        (user_id,),
+    )
+    homework_row = await db.fetchone(
+        """
+        SELECT COUNT(*), MAX(hc.created_at)
+        FROM homework_cache hc
+        JOIN children c ON c.child_id = hc.child_id
+        WHERE c.user_id = ?
+        """,
+        (user_id,),
+    )
+
+    return {
+        "grades_count": int(grades_row[0] or 0) if grades_row else 0,
+        "grades_last": grades_row[1] if grades_row else None,
+        "homework_count": int(homework_row[0] or 0) if homework_row else 0,
+        "homework_last": homework_row[1] if homework_row else None,
+    }
+
+
 # ============================================================================
 # ACCESS CONTROL (роли и доступ)
 # ============================================================================

@@ -1,12 +1,17 @@
 """Handler /profile — профиль пользователя."""
+import asyncio
 import html
 import logging
+from datetime import date
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup
 
-from database.crud import get_user, get_user_role, get_user_children
+from database.crud import get_user, get_user_role, get_user_children, get_user_cache_summary
 from keyboards.main_menu import home_button
+from mesh_api.client import MeshClient
+from mesh_api.exceptions import AuthenticationError, MeshAPIError
+from utils.token_manager import ensure_token
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -29,6 +34,45 @@ def _mask_login(login: str) -> str:
         masked = local[:2] + "***" if len(local) > 2 else "***"
         return f"{masked}@{domain}"
     return login[:2] + "***" if len(login) > 2 else "***"
+
+
+async def _is_mesh_api_available(user_id: int, profile_id: int, children: list) -> bool:
+    """Проверяет доступность МЭШ API коротким запросом оценок за сегодня."""
+    if not profile_id or not children:
+        return False
+
+    try:
+        token = await ensure_token(user_id)
+    except Exception as e:
+        logger.warning("/profile: не удалось получить токен user_id=%d: %s", user_id, e)
+        return False
+
+    if not token:
+        return False
+
+    child = children[0]
+    today = date.today().isoformat()
+    client = MeshClient()
+    try:
+        await asyncio.wait_for(
+            client.get_grades(
+                student_id=child["student_id"],
+                from_date=today,
+                to_date=today,
+                token=token,
+                profile_id=profile_id,
+            ),
+            timeout=12,
+        )
+        return True
+    except (AuthenticationError, MeshAPIError, asyncio.TimeoutError) as e:
+        logger.warning("/profile: МЭШ API недоступен user_id=%d: %s", user_id, e)
+        return False
+    except Exception as e:
+        logger.warning("/profile: проверка МЭШ API завершилась ошибкой user_id=%d: %s", user_id, e)
+        return False
+    finally:
+        await client.close()
 
 
 async def _show_profile(user_id: int, message):
@@ -77,6 +121,24 @@ async def _show_profile(user_id: int, message):
             lines.append(child_str)
     else:
         lines.append("\nДети: не привязаны")
+
+    # v1.0.0: статус доступности МЭШ API + fallback на кеш
+    profile_id = user.get("mesh_profile_id")
+    if mesh_login and profile_id and children:
+        api_ok = await _is_mesh_api_available(user_id, profile_id, children)
+        if api_ok:
+            lines.append("\nМЭШ API: ✅ доступен")
+        else:
+            lines.append("\nМЭШ API: ❌ недоступен (показываются данные из кеша)")
+            cache = await get_user_cache_summary(user_id)
+            grades_last = (cache.get("grades_last") or "—")[:19] if cache.get("grades_last") else "—"
+            hw_last = (cache.get("homework_last") or "—")[:19] if cache.get("homework_last") else "—"
+            lines.append(
+                f"Кеш оценок: {cache.get('grades_count', 0)} (последнее обновление: {html.escape(grades_last)})"
+            )
+            lines.append(
+                f"Кеш ДЗ: {cache.get('homework_count', 0)} (последнее обновление: {html.escape(hw_last)})"
+            )
 
     await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=_home_kb)
 
