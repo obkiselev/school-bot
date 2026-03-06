@@ -4,6 +4,7 @@
 - Repository root now contains app files directly (no nested `school_bot/` folder).
 - Main branch: `main`.
 - Release tag format: `vX.Y.Z`.
+- Current implemented version line: `v1.1.0`.
 
 ## Release Checklist
 1. Update version references in `README.md`, `readme.txt`, `PROGRESS.md`.
@@ -38,3 +39,5 @@ $SSH "sudo systemctl status school_bot --no-pager -l"
 ## Notes
 - Keep secrets only in `.env` (never commit).
 - If `.py` changed, deploy + restart service before closing task.
+- For SCP from this environment, prefer Git Bash path style (`/d/...`) with `D:/Programs/Git/bin/bash.exe`.
+- Final user-facing line for completed requests: `Задача завершена, можно проверять.`

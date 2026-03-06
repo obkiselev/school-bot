@@ -28,7 +28,7 @@
 ## Структура проекта
 
 ```
-school_bot/
+.
 ├── bot.py, config.py
 ├── core/           — database.py, encryption.py
 ├── mesh_api/       — auth.py, client.py, endpoints.py, models.py, exceptions.py
@@ -63,6 +63,9 @@ school_bot/
 - Rate limit: 2.5 сек между пользователями
 - TelegramForbiddenError → автоотключение уведомлений
 - `mark_*_notified()` вызывается ТОЛЬКО при успешной отправке (защита от потери данных)
+- Retry-очередь временных ошибок (v1.1.0): повторная обработка раз в 5 минут
+- Монитор деградации МЭШ API (v1.1.0): алерт в `ADMIN_ID` при затяжных сбоях
+- В `/profile` (v1.0.0): live-статус МЭШ API + fallback-сводка кеша
 
 ## Геймификация (v0.5.0)
 
@@ -92,7 +95,7 @@ SSH_KEY="~/.ssh/id_ed25519_rag"
 SSH="ssh -i $SSH_KEY -p 4422 school_bot@45.152.113.91"
 
 # 1. Загрузить файлы
-tar czf /tmp/school_bot.tar.gz --exclude=venv --exclude=data --exclude=.git --exclude=__pycache__ -C /path/to/school_bot .
+tar czf /tmp/school_bot.tar.gz --exclude=venv --exclude=data --exclude=.git --exclude=__pycache__ -C /path/to/repo .
 scp -i "$SSH_KEY" -P 4422 /tmp/school_bot.tar.gz school_bot@45.152.113.91:/tmp/
 
 # 2. Распаковать и обновить зависимости
