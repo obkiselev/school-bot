@@ -5,7 +5,7 @@ import logging
 from collections import defaultdict
 from datetime import date, timedelta
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
@@ -35,6 +35,8 @@ from mesh_api.exceptions import AuthenticationError, MeshAPIError
 from utils.token_manager import ensure_token
 
 logger = logging.getLogger(__name__)
+
+ProcessStatus = Literal["sent", "no_changes", "failed"]
 
 # Глобальная ссылка на bot (инициализируется в init_scheduler)
 _bot: Optional[Bot] = None
@@ -109,41 +111,56 @@ async def _send_grades_notifications():
     for sub in subscribers:
         by_user[sub["user_id"]].append(sub)
 
+    total_users = len(by_user)
     sent_count = 0
+    skipped_count = 0
     error_count = 0
 
     for user_id, subs in by_user.items():
         try:
-            await _process_grades_for_user(user_id, subs)
-            sent_count += 1
+            status = await _process_grades_for_user(user_id, subs)
+            if status == "sent":
+                sent_count += 1
+            elif status == "failed":
+                error_count += 1
+            else:
+                skipped_count += 1
         except Exception as e:
             logger.error("Уведомления: ошибка оценок для user_id=%d: %s", user_id, e)
             error_count += 1
 
-
-    logger.info("Уведомления: оценки — обработано %d, ошибок %d", sent_count, error_count)
+    logger.info(
+        "Уведомления: оценки — отправлено %d из %d, без изменений: %d, ошибок: %d",
+        sent_count,
+        total_users,
+        skipped_count,
+        error_count,
+    )
     await save_notification_run("grades", date.today())
 
 
-async def _process_grades_for_user(user_id: int, subs: list):
+async def _process_grades_for_user(user_id: int, subs: list) -> ProcessStatus:
     """Обработать уведомления об оценках для одного пользователя."""
     try:
         token = await ensure_token(user_id)
     except Exception as e:
         logger.warning("Уведомления: не удалось получить токен для user_id=%d: %s", user_id, e)
-        return
+        return "failed"
 
     if not token:
-        return
+        logger.warning("Уведомления: пустой токен для user_id=%d", user_id)
+        return "failed"
 
     user = await get_user(user_id)
     profile_id = user.get("mesh_profile_id") if user else None
     if not profile_id:
-        return
+        logger.warning("Уведомления: отсутствует profile_id для user_id=%d", user_id)
+        return "failed"
 
     children = await get_user_children(user_id)
     if not children:
-        return
+        logger.warning("Уведомления: не найдены дети для user_id=%d", user_id)
+        return "failed"
 
     today = date.today()
     all_new_grades = []
@@ -199,6 +216,12 @@ async def _process_grades_for_user(user_id: int, subs: list):
 
             total = sum(len(g) for _, g in all_new_grades)
             await log_activity(user_id, "notification_sent", f"grades: {total} new")
+            return "sent"
+
+        logger.warning("Уведомления: не удалось отправить оценки user_id=%d", user_id)
+        return "failed"
+
+    return "no_changes"
 
 
 # ============================================================================
@@ -218,41 +241,56 @@ async def _send_homework_notifications():
     for sub in subscribers:
         by_user[sub["user_id"]].append(sub)
 
+    total_users = len(by_user)
     sent_count = 0
+    skipped_count = 0
     error_count = 0
 
     for user_id, subs in by_user.items():
         try:
-            await _process_homework_for_user(user_id, subs)
-            sent_count += 1
+            status = await _process_homework_for_user(user_id, subs)
+            if status == "sent":
+                sent_count += 1
+            elif status == "failed":
+                error_count += 1
+            else:
+                skipped_count += 1
         except Exception as e:
             logger.error("Уведомления: ошибка ДЗ для user_id=%d: %s", user_id, e)
             error_count += 1
 
-
-    logger.info("Уведомления: ДЗ — обработано %d, ошибок %d", sent_count, error_count)
+    logger.info(
+        "Уведомления: ДЗ — отправлено %d из %d, без изменений: %d, ошибок: %d",
+        sent_count,
+        total_users,
+        skipped_count,
+        error_count,
+    )
     await save_notification_run("homework", date.today())
 
 
-async def _process_homework_for_user(user_id: int, subs: list):
+async def _process_homework_for_user(user_id: int, subs: list) -> ProcessStatus:
     """Обработать уведомления о ДЗ для одного пользователя."""
     try:
         token = await ensure_token(user_id)
     except Exception as e:
         logger.warning("Уведомления ДЗ: не удалось получить токен для user_id=%d: %s", user_id, e)
-        return
+        return "failed"
 
     if not token:
-        return
+        logger.warning("Уведомления ДЗ: пустой токен для user_id=%d", user_id)
+        return "failed"
 
     user = await get_user(user_id)
     profile_id = user.get("mesh_profile_id") if user else None
     if not profile_id:
-        return
+        logger.warning("Уведомления ДЗ: отсутствует profile_id для user_id=%d", user_id)
+        return "failed"
 
     children = await get_user_children(user_id)
     if not children:
-        return
+        logger.warning("Уведомления ДЗ: не найдены дети для user_id=%d", user_id)
+        return "failed"
 
     today = date.today()
     tomorrow = today + timedelta(days=1)
@@ -268,7 +306,8 @@ async def _process_homework_for_user(user_id: int, subs: list):
                 token=token,
                 profile_id=profile_id,
             )
-        except (AuthenticationError, MeshAPIError):
+        except (AuthenticationError, MeshAPIError) as e:
+            logger.warning("Уведомления ДЗ: ошибка МЭШ API для child %d: %s", child["student_id"], e)
             continue
         finally:
             await client.close()
@@ -303,6 +342,12 @@ async def _process_homework_for_user(user_id: int, subs: list):
 
             total = sum(len(h) for _, h in all_new_hw)
             await log_activity(user_id, "notification_sent", f"homework: {total} new")
+            return "sent"
+
+        logger.warning("Уведомления ДЗ: не удалось отправить user_id=%d", user_id)
+        return "failed"
+
+    return "no_changes"
 
 
 # ============================================================================
