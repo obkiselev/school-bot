@@ -39,6 +39,7 @@ async def _set_user_commands(bot, user_id: int, role: str):
             BotCommand(command="test", description="Пройти тест"),
             BotCommand(command="profile", description="Мой профиль"),
             BotCommand(command="settings", description="Настройки уведомлений"),
+            BotCommand(command="remind", description="Мои напоминания"),
             BotCommand(command="allow", description="Добавить пользователя"),
             BotCommand(command="block", description="Заблокировать пользователя"),
             BotCommand(command="users", description="Список пользователей"),
@@ -53,6 +54,7 @@ async def _set_user_commands(bot, user_id: int, role: str):
             BotCommand(command="test", description="Пройти тест"),
             BotCommand(command="profile", description="Мой профиль"),
             BotCommand(command="settings", description="Настройки уведомлений"),
+            BotCommand(command="remind", description="Мои напоминания"),
             BotCommand(command="help", description="Справка"),
         ]
     elif role == "student":
@@ -63,6 +65,7 @@ async def _set_user_commands(bot, user_id: int, role: str):
             BotCommand(command="test", description="Пройти тест"),
             BotCommand(command="profile", description="Мой профиль"),
             BotCommand(command="settings", description="Настройки уведомлений"),
+            BotCommand(command="remind", description="Мои напоминания"),
             BotCommand(command="help", description="Справка"),
         ]
     else:
@@ -98,6 +101,7 @@ async def cmd_help(message: Message):
         "/dz — Домашние задания",
         "/test — Пройти тест по языку",
         "/settings — Настройки уведомлений",
+        "/remind — Личные ежедневные напоминания",
         "/profile — Мой профиль",
         "/help — Справка (эта страница)",
     ]

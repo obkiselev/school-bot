@@ -31,6 +31,8 @@ from database.crud import (
     log_activity,
     save_notification_run,
     get_last_notification_run,
+    get_due_custom_reminders,
+    mark_custom_reminder_sent,
 )
 from mesh_api.client import MeshClient
 from mesh_api.exceptions import AuthenticationError, MeshAPIError
@@ -69,6 +71,16 @@ _outage_state = {
     "homework": {"consecutive": 0, "last_alert_at": None},
 }
 
+_CONTROL_LESSON_KEYWORDS = (
+    "контроль",
+    "провероч",
+    "самостоятель",
+    "диктант",
+    "тест",
+    "экзамен",
+    "зачет",
+)
+
 def init_scheduler(bot: Bot) -> AsyncIOScheduler:
     """Создать и настроить планировщик уведомлений."""
     global _bot
@@ -101,6 +113,17 @@ def init_scheduler(bot: Bot) -> AsyncIOScheduler:
         coalesce=True,
     )
 
+    # Напоминания-планировщик (контрольные + ДЗ на завтра)
+    planner_h, planner_m = settings.REMINDER_NOTIFICATION_TIME.split(":")
+    scheduler.add_job(
+        _send_planner_reminders,
+        CronTrigger(hour=int(planner_h), minute=int(planner_m), timezone=tz),
+        id="daily_planner_reminders",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+
     # Очистка старого кеша — раз в неделю, ночью
     scheduler.add_job(
         _cleanup_cache_job,
@@ -115,6 +138,15 @@ def init_scheduler(bot: Bot) -> AsyncIOScheduler:
         IntervalTrigger(minutes=_RETRY_JOB_INTERVAL_MIN, timezone=tz),
         id="retry_queue_processor",
         replace_existing=True,
+    )
+
+    # Пользовательские напоминания (/remind) — проверка каждую минуту
+    scheduler.add_job(
+        _process_custom_reminders,
+        IntervalTrigger(minutes=1, timezone=tz),
+        id="custom_reminders_processor",
+        replace_existing=True,
+        coalesce=True,
     )
 
     # Очистка устаревших записей кеша при старте
@@ -445,6 +477,190 @@ async def _process_homework_for_user(user_id: int, subs: list) -> ProcessResult:
 
 
 # ============================================================================
+# ПЛАНИРОВЩИК НАПОМИНАНИЙ (v1.2.0)
+# ============================================================================
+
+def _is_control_lesson(lesson_type: Optional[str], subject: Optional[str]) -> bool:
+    """Определяет, относится ли урок к контрольным/проверочным."""
+    source = f"{lesson_type or ''} {subject or ''}".lower()
+    return any(keyword in source for keyword in _CONTROL_LESSON_KEYWORDS)
+
+
+def _format_planner_notification(
+    controls_by_child: list[tuple[str, list[str]]],
+    homework_by_child: list[tuple[str, list[tuple[str, str]]]],
+    due_date: date,
+) -> str:
+    """Форматирует вечернее напоминание: контрольные и ДЗ на завтра."""
+    lines = [
+        f"<b>Напоминание на завтра ({due_date.strftime('%d.%m.%Y')})</b>",
+        "",
+    ]
+
+    if controls_by_child:
+        lines.append("<b>Контрольные и проверочные:</b>")
+        for child_name, subjects in controls_by_child:
+            if len(controls_by_child) > 1:
+                lines.append(f"• <b>{html.escape(child_name)}</b>")
+            for subject in subjects:
+                lines.append(f"  - {html.escape(subject)}")
+        lines.append("")
+
+    if homework_by_child:
+        lines.append("<b>Домашние задания со сроком на завтра:</b>")
+        for child_name, hw_items in homework_by_child:
+            if len(homework_by_child) > 1:
+                lines.append(f"• <b>{html.escape(child_name)}</b>")
+            for subject, assignment in hw_items:
+                safe_subject = html.escape(subject)
+                safe_assignment = html.escape(assignment or "—")
+                if len(safe_assignment) > 160:
+                    safe_assignment = safe_assignment[:157] + "..."
+                lines.append(f"  - {safe_subject}: {safe_assignment}")
+        lines.append("")
+
+    lines.append("Удачи! ✨")
+    return "\n".join(lines).strip()
+
+
+async def _send_planner_reminders() -> None:
+    """Ежедневные вечерние напоминания о контрольных и ДЗ на завтра."""
+    logger.info("Planner reminders: запуск ежедневных напоминаний...")
+
+    subscribers = await get_users_with_notifications("homework")
+    if not subscribers:
+        logger.info("Planner reminders: нет подписчиков (homework disabled)")
+        return
+
+    by_user = defaultdict(list)
+    for sub in subscribers:
+        by_user[sub["user_id"]].append(sub)
+
+    total_users = len(by_user)
+    sent_count = 0
+    skipped_count = 0
+    error_count = 0
+
+    tomorrow = date.today() + timedelta(days=1)
+
+    for user_id in by_user:
+        try:
+            token = await ensure_token(user_id)
+            if not token:
+                skipped_count += 1
+                continue
+
+            user = await get_user(user_id)
+            profile_id = user.get("mesh_profile_id") if user else None
+            mes_role = user.get("mesh_role", "parent") if user else "parent"
+            if not profile_id:
+                skipped_count += 1
+                continue
+
+            children = await get_user_children(user_id)
+            if not children:
+                skipped_count += 1
+                continue
+
+            controls_by_child: list[tuple[str, list[str]]] = []
+            homework_by_child: list[tuple[str, list[tuple[str, str]]]] = []
+
+            for child in children:
+                child_name = f"{child['first_name']} {child['last_name']}"
+                client = MeshClient()
+                try:
+                    lessons = await client.get_schedule(
+                        student_id=child["student_id"],
+                        date_str=tomorrow.isoformat(),
+                        token=token,
+                        person_id=child.get("person_id"),
+                        mes_role=mes_role,
+                    )
+                    controls = [
+                        lesson.subject
+                        for lesson in lessons
+                        if _is_control_lesson(lesson.lesson_type, lesson.subject)
+                    ]
+                    if controls:
+                        controls_by_child.append((child_name, controls))
+
+                    homework = await client.get_homework(
+                        student_id=child["student_id"],
+                        from_date=tomorrow.isoformat(),
+                        to_date=tomorrow.isoformat(),
+                        token=token,
+                        profile_id=profile_id,
+                    )
+                    hw_items = [(hw.subject, hw.assignment) for hw in homework]
+                    if hw_items:
+                        homework_by_child.append((child_name, hw_items))
+
+                except (AuthenticationError, MeshAPIError) as e:
+                    logger.warning("Planner reminders: user_id=%d child_id=%d error=%s", user_id, child["child_id"], e)
+                finally:
+                    await client.close()
+
+            if not controls_by_child and not homework_by_child:
+                skipped_count += 1
+                continue
+
+            text = _format_planner_notification(controls_by_child, homework_by_child, tomorrow)
+            sent_ok = await _safe_send_message(user_id, text)
+            if sent_ok:
+                sent_count += 1
+                controls_total = sum(len(x[1]) for x in controls_by_child)
+                homework_total = sum(len(x[1]) for x in homework_by_child)
+                await log_activity(
+                    user_id,
+                    "notification_sent",
+                    f"planner: controls={controls_total}, homework={homework_total}",
+                )
+            else:
+                error_count += 1
+        except Exception as e:
+            logger.error("Planner reminders: user_id=%d failed: %s", user_id, e)
+            error_count += 1
+
+    logger.info(
+        "Planner reminders: отправлено %d из %d, пропущено: %d, ошибок: %d",
+        sent_count, total_users, skipped_count, error_count
+    )
+    await save_notification_run("planner", date.today())
+
+
+async def _process_custom_reminders() -> None:
+    """Обрабатывает пользовательские ежедневные напоминания /remind."""
+    tz = pytz.timezone(settings.TIMEZONE)
+    now = datetime.now(tz)
+    now_hhmm = now.strftime("%H:%M")
+    today = now.date()
+
+    due_items = await get_due_custom_reminders(now_hhmm, today)
+    if not due_items:
+        return
+
+    logger.info("Custom reminders: due at %s, count=%d", now_hhmm, len(due_items))
+
+    for item in due_items:
+        reminder_id = item["reminder_id"]
+        user_id = item["user_id"]
+        reminder_text = item["reminder_text"]
+
+        text = (
+            "<b>Напоминание</b>\n"
+            f"{html.escape(reminder_text)}"
+        )
+        sent_ok = await _safe_send_message(user_id, text)
+        if sent_ok:
+            await mark_custom_reminder_sent(reminder_id, today)
+        else:
+            logger.warning(
+                "Custom reminders: send failed reminder_id=%d user_id=%d",
+                reminder_id, user_id
+            )
+
+
+# ============================================================================
 # ФОРМАТИРОВАНИЕ
 # ============================================================================
 
@@ -661,11 +877,15 @@ async def check_and_send_missed(bot: Bot):
     today_str = now.strftime("%Y-%m-%d")
 
     checks = [
-        ("grades", settings.GRADES_NOTIFICATION_TIME, _send_grades_notifications),
-        ("homework", settings.HOMEWORK_NOTIFICATION_TIME, _send_homework_notifications),
+        ("grades", getattr(settings, "GRADES_NOTIFICATION_TIME", "18:00"), _send_grades_notifications),
+        ("homework", getattr(settings, "HOMEWORK_NOTIFICATION_TIME", "19:00"), _send_homework_notifications),
+        ("planner", getattr(settings, "REMINDER_NOTIFICATION_TIME", "20:00"), _send_planner_reminders),
     ]
 
     for notif_type, scheduled_time, send_func in checks:
+        if not isinstance(scheduled_time, str) or ":" not in scheduled_time:
+            logger.warning("Пропущенные: %s — некорректное время '%s', пропуск", notif_type, scheduled_time)
+            continue
         scheduled_h, scheduled_m = scheduled_time.split(":")
         scheduled_dt = now.replace(
             hour=int(scheduled_h), minute=int(scheduled_m), second=0, microsecond=0

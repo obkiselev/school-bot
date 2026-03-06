@@ -1,7 +1,7 @@
 """CRUD operations for database."""
 import logging
 from typing import Optional, List, Dict
-from datetime import datetime
+from datetime import datetime, date
 
 from core.database import get_db
 from core.encryption import encrypt, decrypt
@@ -613,6 +613,93 @@ async def get_last_notification_run(notification_type: str) -> Optional[str]:
         (notification_type,),
     )
     return row[0] if row else None
+
+
+async def create_custom_reminder(user_id: int, reminder_text: str, reminder_time: str) -> int:
+    """Создать пользовательское ежедневное напоминание. Возвращает reminder_id."""
+    db = get_db()
+    conn = await db.connect()
+    cursor = await conn.execute(
+        """
+        INSERT INTO custom_reminders (user_id, reminder_text, reminder_time, is_enabled)
+        VALUES (?, ?, ?, 1)
+        """,
+        (user_id, reminder_text, reminder_time),
+    )
+    await conn.commit()
+    return cursor.lastrowid
+
+
+async def list_custom_reminders(user_id: int) -> List[Dict]:
+    """Получить список пользовательских напоминаний."""
+    db = get_db()
+    rows = await db.fetchall(
+        """
+        SELECT reminder_id, reminder_text, reminder_time, is_enabled, last_sent_date, created_at
+        FROM custom_reminders
+        WHERE user_id = ?
+        ORDER BY reminder_time, reminder_id
+        """,
+        (user_id,),
+    )
+    return [
+        {
+            "reminder_id": row[0],
+            "reminder_text": row[1],
+            "reminder_time": row[2],
+            "is_enabled": bool(row[3]),
+            "last_sent_date": row[4],
+            "created_at": row[5],
+        }
+        for row in rows
+    ]
+
+
+async def delete_custom_reminder(user_id: int, reminder_id: int) -> bool:
+    """Удалить пользовательское напоминание по ID."""
+    db = get_db()
+    conn = await db.connect()
+    cursor = await conn.execute(
+        "DELETE FROM custom_reminders WHERE user_id = ? AND reminder_id = ?",
+        (user_id, reminder_id),
+    )
+    await conn.commit()
+    return cursor.rowcount > 0
+
+
+async def get_due_custom_reminders(now_hhmm: str, today: date) -> List[Dict]:
+    """Получить напоминания, которые пора отправить в текущую минуту."""
+    db = get_db()
+    today_str = today.isoformat()
+    rows = await db.fetchall(
+        """
+        SELECT reminder_id, user_id, reminder_text, reminder_time, last_sent_date
+        FROM custom_reminders
+        WHERE is_enabled = 1
+          AND reminder_time = ?
+          AND (last_sent_date IS NULL OR last_sent_date < ?)
+        """,
+        (now_hhmm, today_str),
+    )
+    return [
+        {
+            "reminder_id": row[0],
+            "user_id": row[1],
+            "reminder_text": row[2],
+            "reminder_time": row[3],
+            "last_sent_date": row[4],
+        }
+        for row in rows
+    ]
+
+
+async def mark_custom_reminder_sent(reminder_id: int, sent_date: date) -> None:
+    """Отметить пользовательское напоминание как отправленное за дату."""
+    db = get_db()
+    await db.execute(
+        "UPDATE custom_reminders SET last_sent_date = ? WHERE reminder_id = ?",
+        (sent_date.isoformat(), reminder_id),
+    )
 
 
 async def cleanup_old_cache(days: int = 30) -> None:

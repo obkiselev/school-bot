@@ -171,6 +171,20 @@ async def _run_migrations(conn: aiosqlite.Connection):
                         logger.debug("Migration 006 statement skipped: %s", e)
             await conn.commit()
 
+    # Миграция 007: пользовательские напоминания (/remind)
+    migration_007 = migrations_dir / "007_reminders.sql"
+    if migration_007.exists():
+        with open(migration_007, "r", encoding="utf-8") as f:
+            sql = f.read()
+        for statement in sql.split(";"):
+            statement = statement.strip()
+            if statement:
+                try:
+                    await conn.execute(statement)
+                except Exception as e:
+                    logger.debug("Migration 007 statement skipped: %s", e)
+        await conn.commit()
+
     # Авто-создание главного админа (ADMIN_ID из .env)
     await _ensure_admin(conn)
 

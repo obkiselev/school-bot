@@ -4,7 +4,7 @@
 - Repository root now contains app files directly (no nested `school_bot/` folder).
 - Main branch: `main`.
 - Release tag format: `vX.Y.Z`.
-- Current implemented version line: `v1.1.0`.
+- Current implemented version line: `v1.2.0`.
 
 ## Release Checklist
 1. Update version references in `README.md`, `readme.txt`, `PROGRESS.md`.
