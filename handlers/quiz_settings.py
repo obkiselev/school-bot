@@ -46,6 +46,16 @@ async def count_selected(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
+    source = questions[0].get("_source", "llm")
+    mode_text = "LLM" if source == "llm" else "fallback"
+    if source == "fallback":
+        reason = (questions[0].get("_source_reason") or "LLM недоступен").strip()
+        if len(reason) > 140:
+            reason = reason[:137] + "..."
+        await callback.message.answer(f"ℹ️ Режим: {mode_text}\nПричина: {reason}")
+    else:
+        await callback.message.answer(f"ℹ️ Режим: {mode_text}")
+
     # Load user's gamification theme
     from database.crud import get_user_theme
     theme_key = await get_user_theme(callback.from_user.id)

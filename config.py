@@ -1,5 +1,4 @@
 """Configuration settings using pydantic-settings."""
-import ipaddress
 import re
 from typing import Optional
 from urllib.parse import urlparse
@@ -36,20 +35,12 @@ class Settings(BaseSettings):
         default="19:00",
         description="Default time for homework notifications (HH:MM)"
     )
-    REMINDER_NOTIFICATION_TIME: str = Field(
-        default="20:00",
-        description="Default time for planner reminders (HH:MM)"
-    )
     TIMEZONE: str = Field(
         default="Europe/Moscow",
         description="Timezone for notifications"
     )
 
-    @field_validator(
-        "GRADES_NOTIFICATION_TIME",
-        "HOMEWORK_NOTIFICATION_TIME",
-        "REMINDER_NOTIFICATION_TIME",
-    )
+    @field_validator("GRADES_NOTIFICATION_TIME", "HOMEWORK_NOTIFICATION_TIME")
     @classmethod
     def validate_time_format(cls, v: str) -> str:
         if not re.match(r"^\d{1,2}:\d{2}$", v):
@@ -146,72 +137,30 @@ class Settings(BaseSettings):
         }
 
     # LLM (тестирование по языкам — LM Studio)
-    LLM_CONNECT_MODE: str = Field(
-        default="local",
-        description="LLM connection mode: local, remote, auto"
-    )
     LLM_BASE_URL: str = Field(
         default="http://localhost:1234/v1",
         description="LM Studio API base URL"
     )
-    LLM_REMOTE_BASE_URL: Optional[str] = Field(
+    LLM_BRIDGE_URL: Optional[str] = Field(
         default=None,
-        description="Remote OpenAI-compatible LLM base URL (for hybrid mode)"
+        description="Optional remote HTTPS bridge URL for local LLM host"
     )
-    LLM_REMOTE_API_KEY: Optional[str] = Field(
+    LLM_API_KEY: Optional[str] = Field(
         default=None,
-        description="API key for remote LLM endpoint"
+        description="API key for OpenAI-compatible endpoint (bridge or cloud provider)"
     )
     LLM_REQUEST_TIMEOUT: int = Field(
-        default=45,
-        description="LLM request timeout in seconds"
+        default=120,
+        description="Timeout for a single LLM request in seconds"
+    )
+    LLM_FALLBACK_ENABLED: bool = Field(
+        default=True,
+        description="Generate template-based quiz when LLM is unavailable"
     )
     LLM_MODEL: str = Field(
         default="qwen2.5-7b-instruct",
         description="LLM model name"
     )
-    QUIZ_TEMPLATE_FALLBACK_ENABLED: bool = Field(
-        default=True,
-        description="Use built-in template questions if LLM is unavailable"
-    )
-
-    @field_validator("LLM_CONNECT_MODE")
-    @classmethod
-    def validate_llm_connect_mode(cls, v: str) -> str:
-        value = (v or "").strip().lower()
-        if value not in {"local", "remote", "auto"}:
-            raise ValueError("LLM_CONNECT_MODE must be one of: local, remote, auto")
-        return value
-
-    @field_validator("LLM_REMOTE_BASE_URL")
-    @classmethod
-    def validate_llm_remote_base_url(cls, v: Optional[str]) -> Optional[str]:
-        if not v:
-            return v
-        parsed = urlparse(v)
-        if parsed.scheme not in {"http", "https"}:
-            raise ValueError("LLM_REMOTE_BASE_URL must start with http:// or https://")
-        host = (parsed.hostname or "").strip().lower()
-        if not host:
-            raise ValueError("LLM_REMOTE_BASE_URL must include host")
-        if parsed.scheme == "http" and not cls._is_private_or_local_host(host):
-            raise ValueError(
-                "LLM_REMOTE_BASE_URL with http:// is allowed only for local/private hosts; "
-                "use https:// for public endpoints"
-            )
-        return v
-
-    @staticmethod
-    def _is_private_or_local_host(host: str) -> bool:
-        if host in {"localhost", "127.0.0.1", "::1"}:
-            return True
-        if host.endswith(".local"):
-            return True
-        try:
-            ip = ipaddress.ip_address(host)
-            return ip.is_loopback or ip.is_private
-        except ValueError:
-            return False
 
     # Quiz settings (темы и уровни для тестирования по языкам)
     TOPICS: dict = Field(default={

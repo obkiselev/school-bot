@@ -2,12 +2,24 @@
 import logging
 
 from config import settings
-from llm.client import chat_completion
+from llm.client import chat_completion, get_last_llm_error
 from llm.prompts import build_test_prompt
 from llm.parser import parse_questions
-from services.quiz_fallback import generate_fallback_questions
+from services.fallback_test_generator import generate_fallback_test
 
 logger = logging.getLogger(__name__)
+
+
+def _mark_source(questions: list[dict], source: str, reason: str | None = None) -> list[dict]:
+    """Attach generation source marker to each question."""
+    marked: list[dict] = []
+    for q in questions:
+        item = dict(q)
+        item["_source"] = source
+        if reason:
+            item["_source_reason"] = reason
+        marked.append(item)
+    return marked
 
 
 async def generate_test(language: str, topic: str, count: int, user_id: int | None = None, level: str = "A2") -> list[dict] | None:
@@ -27,7 +39,7 @@ async def generate_test(language: str, topic: str, count: int, user_id: int | No
     questions = parse_questions(raw) if raw else None
 
     if questions and len(questions) >= count:
-        return questions[:count]
+        return _mark_source(questions[:count], "llm")
 
     # Retry once with a stricter prompt
     logger.info("First attempt didn't produce enough questions, retrying...")
@@ -36,16 +48,12 @@ async def generate_test(language: str, topic: str, count: int, user_id: int | No
     questions = parse_questions(raw) if raw else None
 
     if questions:
-        return questions[:count]
+        return _mark_source(questions[:count], "llm")
 
-    if settings.QUIZ_TEMPLATE_FALLBACK_ENABLED:
-        logger.warning(
-            "LLM unavailable for quiz generation (language=%s, topic=%s, level=%s); using template fallback",
-            language,
-            topic,
-            level,
-        )
-        return generate_fallback_questions(language, topic, count)
+    if settings.LLM_FALLBACK_ENABLED:
+        reason = get_last_llm_error() or "LLM unavailable"
+        logger.warning("LLM unavailable, switching to template fallback quiz: %s", reason)
+        return _mark_source(generate_fallback_test(language, topic, count, level=level), "fallback", reason=reason)
 
     logger.error("Failed to generate test after 2 attempts")
     return None
