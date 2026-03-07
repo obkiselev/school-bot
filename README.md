@@ -94,9 +94,14 @@ ADMIN_ID=123456789
 # Прокси (опционально, для обхода блокировок)
 # MESH_PROXY_URL=socks5://127.0.0.1:1080
 
-# LLM для тестов (LM Studio на localhost)
+# LLM для тестов (v1.2.1: local/remote/auto)
+# LLM_CONNECT_MODE=local
 # LLM_BASE_URL=http://localhost:1234/v1
+# LLM_REMOTE_BASE_URL=https://your-llm-host.example.com/v1
+# LLM_REMOTE_API_KEY=your_remote_api_key
+# LLM_REQUEST_TIMEOUT=45
 # LLM_MODEL=qwen2.5-7b-instruct
+# QUIZ_TEMPLATE_FALLBACK_ENABLED=true
 ```
 
 ### 3. Запуск
@@ -203,6 +208,7 @@ python bot.py
 │
 ├── services/                  # Бизнес-логика
 │   ├── test_generator.py      # Генерация тестов
+│   ├── quiz_fallback.py       # Резервная генерация квизов без LLM
 │   ├── answer_checker.py      # Проверка ответов
 │   ├── progress_tracker.py    # Статистика и прогресс
 │   ├── notification_service.py # Уведомления (APScheduler)
@@ -257,10 +263,11 @@ python bot.py
 
 ### Ближайший план: v1.2.1
 
-- Гибридная архитектура: бот работает на сервере, LLM остаётся на локальном компьютере
-- Добавить безопасный канал связи server -> local LLM host
-- Убрать зависимость квизов от `localhost` на сервере
-- Добавить fallback-режим при недоступности локального LLM
+- [x] Гибридная архитектура: конфиг `LLM_CONNECT_MODE=local|remote|auto`
+- [x] Безопасный канал: для публичных endpoint обязателен `https` (`http` только для private/local host)
+- [x] Убрана жёсткая зависимость от `localhost` (добавлен `LLM_REMOTE_BASE_URL`)
+- [x] Добавлен fallback-режим квизов (`QUIZ_TEMPLATE_FALLBACK_ENABLED`)
+- [ ] Подготовить эксплуатационные инструкции для гибридной схемы (VPS + локальный LLM host)
 
 ### Известные проблемы
 

@@ -1,9 +1,11 @@
 """Test generation via LLM."""
 import logging
 
+from config import settings
 from llm.client import chat_completion
 from llm.prompts import build_test_prompt
 from llm.parser import parse_questions
+from services.quiz_fallback import generate_fallback_questions
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,15 @@ async def generate_test(language: str, topic: str, count: int, user_id: int | No
 
     if questions:
         return questions[:count]
+
+    if settings.QUIZ_TEMPLATE_FALLBACK_ENABLED:
+        logger.warning(
+            "LLM unavailable for quiz generation (language=%s, topic=%s, level=%s); using template fallback",
+            language,
+            topic,
+            level,
+        )
+        return generate_fallback_questions(language, topic, count)
 
     logger.error("Failed to generate test after 2 attempts")
     return None
