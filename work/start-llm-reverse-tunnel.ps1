@@ -3,7 +3,8 @@ param(
     [int]$ServerPort = 4422,
     [string]$ServerUser = "school_bot",
     [int]$ServerBindPort = 12340,
-    [int]$LocalLmPort = 1234,
+    [Alias("LocalLmPort")]
+    [int]$LocalBridgePort = 8787,
     [string]$KeyPath = "$env:USERPROFILE\.ssh\id_ed25519_rag",
     [switch]$Once
 )
@@ -26,11 +27,11 @@ $sshArgs = @(
     "-o", "ExitOnForwardFailure=yes",
     "-i", $KeyPath,
     "-p", "$ServerPort",
-    "-R", "127.0.0.1:$ServerBindPort`:127.0.0.1:$LocalLmPort",
+    "-R", "127.0.0.1:$ServerBindPort`:127.0.0.1:$LocalBridgePort",
     "$ServerUser@$ServerHost"
 )
 
-Write-Host "Starting reverse tunnel: server 127.0.0.1:$ServerBindPort -> local 127.0.0.1:$LocalLmPort"
+Write-Host "Starting reverse tunnel: server 127.0.0.1:$ServerBindPort -> local bridge 127.0.0.1:$LocalBridgePort"
 Write-Host "SSH key: $KeyPath"
 
 if ($Once) {
