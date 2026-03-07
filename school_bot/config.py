@@ -141,6 +141,22 @@ class Settings(BaseSettings):
         default="http://localhost:1234/v1",
         description="LM Studio API base URL"
     )
+    LLM_BRIDGE_URL: Optional[str] = Field(
+        default=None,
+        description="Optional remote HTTPS bridge URL for local LLM host"
+    )
+    LLM_API_KEY: Optional[str] = Field(
+        default=None,
+        description="API key for OpenAI-compatible endpoint (bridge or cloud provider)"
+    )
+    LLM_REQUEST_TIMEOUT: int = Field(
+        default=120,
+        description="Timeout for a single LLM request in seconds"
+    )
+    LLM_FALLBACK_ENABLED: bool = Field(
+        default=True,
+        description="Generate template-based quiz when LLM is unavailable"
+    )
     LLM_MODEL: str = Field(
         default="qwen2.5-7b-instruct",
         description="LLM model name"
