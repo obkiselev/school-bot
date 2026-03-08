@@ -4,7 +4,7 @@
 - Repository root now contains app files directly (no nested `school_bot/` folder).
 - Main branch: `main`.
 - Release tag format: `vX.Y.Z`.
-- Current implemented version line: `v1.2.0`.
+- Current implemented version line: `v1.4.0`.
 
 ## Release Checklist
 1. Update version references in `README.md`, `readme.txt`, `PROGRESS.md`.
@@ -41,3 +41,9 @@ $SSH "sudo systemctl status school_bot --no-pager -l"
 - If `.py` changed, deploy + restart service before closing task.
 - For SCP from this environment, prefer Git Bash path style (`/d/...`) with `D:/Programs/Git/bin/bash.exe`.
 - Final user-facing line for completed requests: `Задача завершена, можно проверять.`
+
+## Autonomy Policy (No Confirmation)
+- Do not ask the user for confirmation for: `git add/commit/tag/push/rebase`, release fixation, deploy, restart, or health/status checks.
+- If push is rejected (`non-fast-forward`), run `git fetch` + `git rebase origin/main` + `git push` automatically.
+- Always update development history files on release/fixation: `README.md`, `readme.txt`, `PROGRESS.md`.
+- Always include in final report: commit hash, tag, test result, deploy result, service status.
