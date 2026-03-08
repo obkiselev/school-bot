@@ -76,8 +76,21 @@ def format_health_message(status: dict[str, Any]) -> str:
     if not targets:
         lines.append("ℹ️ LLM: endpoint'ы не настроены (fallback-режим)")
     else:
+        result_map: dict[str, tuple[bool, str]] = {}
+        for ok, msg in status.get("llm_results", []):
+            label = msg.split(":", 1)[0].strip().lower()
+            result_map[label] = (ok, msg)
+
+        bridge_ok = result_map.get("bridge", (False, ""))[0]
         lines.append(f"{llm_mark} LLM targets:")
         for ok, msg in status.get("llm_results", []):
+            label = msg.split(":", 1)[0].strip().lower()
+
+            # In tunnel mode bridge is primary; direct can be unavailable on VPS by design.
+            if label == "direct" and bridge_ok and not ok:
+                lines.append(f"  ℹ️ {msg} (ожидаемо: используется bridge)")
+                continue
+
             mark = "✅" if ok else "❌"
             lines.append(f"  {mark} {msg}")
 

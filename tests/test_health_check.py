@@ -53,3 +53,24 @@ def test_format_health_message():
     assert "✅ БД: ok" in text
     assert "❌ LLM targets:" in text
     assert "❌ bridge: HTTP 401" in text
+
+
+def test_format_health_message_bridge_ok_direct_fail_is_expected():
+    text = health_check.format_health_message(
+        {
+            "db_ok": True,
+            "db_message": "ok",
+            "llm_targets": [
+                ("http://127.0.0.1:12340/v1", "token", "bridge"),
+                ("http://localhost:1234/v1", "token", "direct"),
+            ],
+            "llm_results": [
+                (True, "bridge: HTTP 200"),
+                (False, "direct: ClientConnectorError: Cannot connect to host localhost:1234"),
+            ],
+            "llm_ok": True,
+        }
+    )
+    assert "✅ LLM targets:" in text
+    assert "✅ bridge: HTTP 200" in text
+    assert "ℹ️ direct: ClientConnectorError: Cannot connect to host localhost:1234 (ожидаемо: используется bridge)" in text

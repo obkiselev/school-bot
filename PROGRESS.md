@@ -154,6 +154,7 @@
 - `/health` добавлен в меню команд admin
 - `/health` добавлен в `/help` для admin
 - Обновлена таблица команд в README
+- Для схемы `bridge + tunnel` вывод `/health` теперь не помечает `direct localhost` как ошибку, если `bridge` уже доступен (показывается как ожидаемый резерв)
 
 **CI/CD (`.github/workflows/ci.yml`):**
 - Добавлен GitHub Actions workflow:
