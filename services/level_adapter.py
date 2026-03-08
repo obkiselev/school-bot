@@ -9,12 +9,19 @@ logger = logging.getLogger(__name__)
 GRADE_LEVEL_MAP = {
     "English": {(1, 4): "A1", (5, 6): "A2", (7, 8): "B1", (9, 11): "B2"},
     "Spanish": {(1, 6): "A1", (7, 8): "A1-A2", (9, 11): "A2"},
+    "French": {(1, 4): "A1", (5, 7): "A2", (8, 11): "B1"},
+    "German": {(1, 4): "A1", (5, 7): "A2", (8, 11): "B1"},
 }
 
 # Levels available for manual selection (parents/admins)
 AVAILABLE_LEVELS = {
     "English": ["A1", "A2", "B1", "B2", "C1"],
     "Spanish": ["A1", "A1-A2", "A2", "B1"],
+    "French": ["A1", "A2", "B1"],
+    "German": ["A1", "A2", "B1"],
+    "Mathematics": ["School"],
+    "History": ["School"],
+    "Biology": ["School"],
 }
 
 DEFAULT_LEVEL = "A2"
@@ -33,6 +40,8 @@ def extract_grade(class_name: Optional[str]) -> Optional[int]:
 def grade_to_language_level(grade: int, language: str) -> str:
     """Convert grade + language to CEFR level string."""
     lang_map = GRADE_LEVEL_MAP.get(language, {})
+    if not lang_map and language in {"Mathematics", "History", "Biology"}:
+        return "School"
     for (low, high), level in lang_map.items():
         if low <= grade <= high:
             return level

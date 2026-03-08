@@ -185,6 +185,34 @@ async def _run_migrations(conn: aiosqlite.Connection):
                     logger.debug("Migration 007 statement skipped: %s", e)
         await conn.commit()
 
+    # Миграция 008: расширение квизов и импорт вопросов
+    migration_008 = migrations_dir / "008_quiz_expansion.sql"
+    if migration_008.exists():
+        with open(migration_008, "r", encoding="utf-8") as f:
+            sql = f.read()
+        for statement in sql.split(";"):
+            statement = statement.strip()
+            if statement:
+                try:
+                    await conn.execute(statement)
+                except Exception as e:
+                    logger.debug("Migration 008 statement skipped: %s", e)
+        await conn.commit()
+
+    # Миграция 009: соревнования и социальные функции
+    migration_009 = migrations_dir / "009_social_features.sql"
+    if migration_009.exists():
+        with open(migration_009, "r", encoding="utf-8") as f:
+            sql = f.read()
+        for statement in sql.split(";"):
+            statement = statement.strip()
+            if statement:
+                try:
+                    await conn.execute(statement)
+                except Exception as e:
+                    logger.debug("Migration 009 statement skipped: %s", e)
+        await conn.commit()
+
     # Авто-создание главного админа (ADMIN_ID из .env)
     await _ensure_admin(conn)
 

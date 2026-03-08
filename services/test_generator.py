@@ -24,6 +24,16 @@ def _mark_source(questions: list[dict], source: str, reason: str | None = None) 
 
 async def generate_test(language: str, topic: str, count: int, user_id: int | None = None, level: str = "A2") -> list[dict] | None:
     """Generate a test with the given parameters. Returns list of questions or None."""
+    imported_questions: list[dict] = []
+    try:
+        from database.crud import get_imported_questions
+        imported_questions = await get_imported_questions(language, level, topic, limit=count)
+    except Exception:
+        logger.warning("Could not fetch imported questions, continuing with LLM")
+
+    if len(imported_questions) >= count:
+        return _mark_source(imported_questions[:count], "imported")
+
     previous_questions: list[str] = []
     if user_id:
         try:
@@ -39,6 +49,10 @@ async def generate_test(language: str, topic: str, count: int, user_id: int | No
     questions = parse_questions(raw) if raw else None
 
     if questions and len(questions) >= count:
+        if imported_questions:
+            missing = max(0, count - len(imported_questions))
+            if missing > 0:
+                return _mark_source(imported_questions + questions[:missing], "imported")
         return _mark_source(questions[:count], "llm")
 
     # Retry once with a stricter prompt
@@ -48,12 +62,21 @@ async def generate_test(language: str, topic: str, count: int, user_id: int | No
     questions = parse_questions(raw) if raw else None
 
     if questions:
+        if imported_questions:
+            missing = max(0, count - len(imported_questions))
+            if missing > 0:
+                return _mark_source(imported_questions + questions[:missing], "imported")
         return _mark_source(questions[:count], "llm")
 
     if settings.LLM_FALLBACK_ENABLED:
         reason = get_last_llm_error() or "LLM unavailable"
         logger.warning("LLM unavailable, switching to template fallback quiz: %s", reason)
-        return _mark_source(generate_fallback_test(language, topic, count, level=level), "fallback", reason=reason)
+        fallback_questions = generate_fallback_test(language, topic, count, level=level)
+        if imported_questions:
+            missing = max(0, count - len(imported_questions))
+            merged = imported_questions + fallback_questions[:missing]
+            return _mark_source(merged, "imported")
+        return _mark_source(fallback_questions, "fallback", reason=reason)
 
     logger.error("Failed to generate test after 2 attempts")
     return None

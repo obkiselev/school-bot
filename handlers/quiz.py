@@ -1,10 +1,14 @@
 """Quiz flow handlers — answering questions, cancel, results."""
 import logging
+import os
 import time
+import base64
+from io import BytesIO
 from datetime import date
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
+from aiogram.types.input_file import BufferedInputFile, FSInputFile
 from aiogram.fsm.context import FSMContext
 
 logger = logging.getLogger(__name__)
@@ -19,6 +23,91 @@ from keyboards.quiz_kb import multiple_choice_keyboard, true_false_keyboard, can
 from keyboards.main_menu import quiz_home_keyboard
 
 router = Router()
+
+
+async def _send_audio_question(message: Message, header: str, question: dict):
+    """Send audio-type question using Telegram voice/audio when available."""
+    text = header + question["question"] + "\n\n🎧 Прослушай и напиши ответ:"
+    await message.answer(text, reply_markup=cancel_keyboard())
+
+    # Preferred source: Telegram file_id (best for production reliability)
+    audio_file_id = question.get("audio_file_id")
+    if audio_file_id:
+        kind = (question.get("audio_kind") or "voice").lower()
+        if kind == "audio":
+            await message.answer_audio(audio=audio_file_id)
+        else:
+            await message.answer_voice(voice=audio_file_id)
+        return
+
+    # Optional source: HTTP URL
+    audio_url = question.get("audio_url")
+    if audio_url:
+        kind = (question.get("audio_kind") or "audio").lower()
+        if kind == "voice":
+            await message.answer_voice(voice=audio_url)
+        else:
+            await message.answer_audio(audio=audio_url)
+        return
+
+    # Optional source: local file path
+    audio_path = question.get("audio_path")
+    if audio_path and os.path.exists(audio_path):
+        kind = (question.get("audio_kind") or "audio").lower()
+        input_file = FSInputFile(audio_path)
+        if kind == "voice":
+            await message.answer_voice(voice=input_file)
+        else:
+            await message.answer_audio(audio=input_file)
+        return
+
+    # Optional source: base64 payload
+    audio_b64 = question.get("audio_base64")
+    if audio_b64:
+        try:
+            data = base64.b64decode(audio_b64)
+            file_name = question.get("audio_filename") or "question_audio.ogg"
+            input_file = BufferedInputFile(data, filename=file_name)
+            kind = (question.get("audio_kind") or "voice").lower()
+            if kind == "audio":
+                await message.answer_audio(audio=input_file)
+            else:
+                await message.answer_voice(voice=input_file)
+            return
+        except Exception:
+            logger.warning("Invalid audio_base64 in question payload")
+
+    # Last-resort fallback: transcript-style hint
+    audio_text = question.get("audio_text")
+    if audio_text:
+        await message.answer(f"🔊 Аудио (текстовая версия): {audio_text}")
+    else:
+        await message.answer("⚠️ Для этого вопроса аудио не найдено. Напиши ответ по условию.")
+
+
+async def _download_telegram_media_bytes(message: Message) -> tuple[bytes | None, str]:
+    """Download voice/audio from Telegram and return bytes + suggested filename."""
+    if message.voice:
+        file_id = message.voice.file_id
+        filename = f"voice_{message.voice.file_unique_id}.ogg"
+        file_size = message.voice.file_size or 0
+    elif message.audio:
+        file_id = message.audio.file_id
+        filename = message.audio.file_name or f"audio_{message.audio.file_unique_id}.mp3"
+        file_size = message.audio.file_size or 0
+    else:
+        return None, "audio.bin"
+
+    from config import settings
+    max_bytes = settings.STT_MAX_FILE_MB * 1024 * 1024
+    if file_size and file_size > max_bytes:
+        await message.answer(f"⚠️ Файл слишком большой для распознавания (лимит {settings.STT_MAX_FILE_MB} МБ).")
+        return None, filename
+
+    tg_file = await message.bot.get_file(file_id)
+    buf = BytesIO()
+    await message.bot.download_file(tg_file.file_path, destination=buf)
+    return buf.getvalue(), filename
 
 
 async def start_quiz(message: Message, state: FSMContext):
@@ -66,6 +155,18 @@ async def _send_current_question(message: Message, state: FSMContext):
         text = header + q["question"] + "\n\n\u270f\ufe0f \u041d\u0430\u043f\u0438\u0448\u0438 \u043f\u0435\u0440\u0435\u0432\u043e\u0434:"
         await message.answer(text, reply_markup=cancel_keyboard())
 
+    elif q_type == "matching":
+        text = (
+            header
+            + q["question"]
+            + "\n\n✏️ Напиши соответствие в одну строку "
+              "(например: термин:определение)."
+        )
+        await message.answer(text, reply_markup=cancel_keyboard())
+
+    elif q_type == "audio":
+        await _send_audio_question(message, header, q)
+
     else:
         await state.update_data(current_index=index + 1)
         await _send_current_question(message, state)
@@ -79,7 +180,7 @@ async def answer_via_button(callback: CallbackQuery, state: FSMContext):
     await _process_answer(callback.message, state, user_answer)
 
 
-@router.message(QuizFlow.answering_question)
+@router.message(QuizFlow.answering_question, F.text)
 async def answer_via_text(message: Message, state: FSMContext):
     """Handle answers typed as text."""
     user_answer = message.text.strip() if message.text else ""
@@ -87,6 +188,46 @@ async def answer_via_text(message: Message, state: FSMContext):
         await message.answer("\u041d\u0430\u043f\u0438\u0448\u0438 \u043e\u0442\u0432\u0435\u0442 \u0442\u0435\u043a\u0441\u0442\u043e\u043c:")
         return
     await _process_answer(message, state, user_answer)
+
+
+@router.message(QuizFlow.answering_question, F.voice)
+async def answer_via_voice(message: Message, state: FSMContext):
+    """Handle voice answers using STT."""
+    from llm.client import transcribe_audio_bytes, get_last_stt_error
+
+    audio_bytes, filename = await _download_telegram_media_bytes(message)
+    if not audio_bytes:
+        return
+
+    await message.answer("🎙 Распознаю голосовой ответ...")
+    text = await transcribe_audio_bytes(audio_bytes, filename=filename)
+    if not text:
+        reason = get_last_stt_error() or "неизвестная ошибка STT"
+        await message.answer(f"Не удалось распознать голосовое сообщение.\nПричина: {reason}\n\nПопробуй текстом.")
+        return
+
+    await message.answer(f"📝 Распознано: {text}")
+    await _process_answer(message, state, text)
+
+
+@router.message(QuizFlow.answering_question, F.audio)
+async def answer_via_audio(message: Message, state: FSMContext):
+    """Handle audio-file answers using STT."""
+    from llm.client import transcribe_audio_bytes, get_last_stt_error
+
+    audio_bytes, filename = await _download_telegram_media_bytes(message)
+    if not audio_bytes:
+        return
+
+    await message.answer("🎧 Распознаю аудио-ответ...")
+    text = await transcribe_audio_bytes(audio_bytes, filename=filename)
+    if not text:
+        reason = get_last_stt_error() or "неизвестная ошибка STT"
+        await message.answer(f"Не удалось распознать аудио.\nПричина: {reason}\n\nПопробуй текстом.")
+        return
+
+    await message.answer(f"📝 Распознано: {text}")
+    await _process_answer(message, state, text)
 
 
 @router.callback_query(F.data == "cancel_quiz")

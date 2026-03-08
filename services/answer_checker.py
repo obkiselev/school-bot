@@ -24,6 +24,14 @@ def check_answer(question: dict, user_answer: str) -> bool:
                 return True
         return False
 
+    elif q_type in {"matching", "audio"}:
+        if _normalize(user_answer) == _normalize(correct):
+            return True
+        for alt in question.get("accept_also", []):
+            if _normalize(user_answer) == _normalize(alt):
+                return True
+        return False
+
     return False
 
 

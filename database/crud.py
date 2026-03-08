@@ -1,5 +1,7 @@
 """CRUD operations for database."""
+import json
 import logging
+import secrets
 from typing import Optional, List, Dict
 from datetime import datetime, date
 
@@ -1137,3 +1139,264 @@ async def complete_daily_challenge(user_id: int, challenge_date: str) -> None:
         "UPDATE daily_challenges SET is_completed = 1 WHERE user_id = ? AND challenge_date = ?",
         (user_id, challenge_date),
     )
+
+
+async def save_imported_questions(
+    user_id: int,
+    language: str,
+    level: str,
+    topic: str,
+    questions: List[Dict],
+) -> int:
+    """Save imported questions to question bank."""
+    db = get_db()
+    conn = await db.connect()
+    inserted = 0
+    for question in questions:
+        await conn.execute(
+            """
+            INSERT INTO imported_questions (user_id, language, level, topic, question_json)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, language, level, topic, json.dumps(question, ensure_ascii=False)),
+        )
+        inserted += 1
+    await conn.commit()
+    return inserted
+
+
+async def get_imported_questions(
+    language: str,
+    level: str,
+    topic: str,
+    limit: int,
+) -> List[Dict]:
+    """Get latest imported questions for topic/level."""
+    db = get_db()
+    rows = await db.fetchall(
+        """
+        SELECT question_json
+        FROM imported_questions
+        WHERE language = ? AND level = ? AND topic = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        (language, level, topic, limit),
+    )
+    result: List[Dict] = []
+    for row in rows:
+        try:
+            parsed = json.loads(row[0])
+            if isinstance(parsed, dict):
+                result.append(parsed)
+        except (TypeError, ValueError):
+            logger.warning("Skipping broken imported question for %s/%s/%s", language, level, topic)
+    return result
+
+
+async def get_xp_leaderboard(limit: int = 10) -> List[Dict]:
+    """Top students by total XP."""
+    db = get_db()
+    rows = await db.fetchall(
+        """
+        SELECT us.user_id, us.xp_total, us.level, us.current_streak,
+               COALESCE(NULLIF(u.first_name, ''), NULLIF(u.username, ''), CAST(u.user_id AS TEXT)) AS display_name
+        FROM user_stats us
+        JOIN users u ON u.user_id = us.user_id
+        WHERE u.role = 'student' AND (u.is_blocked = 0 OR u.is_blocked IS NULL)
+        ORDER BY us.xp_total DESC, us.level DESC, us.current_streak DESC, us.user_id ASC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    return [
+        {
+            "user_id": row[0],
+            "xp_total": row[1] or 0,
+            "level": row[2] or 1,
+            "current_streak": row[3] or 0,
+            "display_name": row[4],
+        }
+        for row in rows
+    ]
+
+
+async def get_user_xp_rank(user_id: int) -> Optional[int]:
+    """Get student's rank by XP among students."""
+    db = get_db()
+    row = await db.fetchone(
+        """
+        WITH ranked AS (
+            SELECT us.user_id,
+                   ROW_NUMBER() OVER (
+                       ORDER BY us.xp_total DESC, us.level DESC, us.current_streak DESC, us.user_id ASC
+                   ) AS rank_num
+            FROM user_stats us
+            JOIN users u ON u.user_id = us.user_id
+            WHERE u.role = 'student' AND (u.is_blocked = 0 OR u.is_blocked IS NULL)
+        )
+        SELECT rank_num FROM ranked WHERE user_id = ?
+        """,
+        (user_id,),
+    )
+    return row[0] if row else None
+
+
+async def get_weekly_tests_leaderboard(week_start: str, week_end: str, limit: int = 10) -> List[Dict]:
+    """Top students by completed tests for a given week [week_start, week_end]."""
+    db = get_db()
+    rows = await db.fetchall(
+        """
+        SELECT ts.user_id,
+               COUNT(*) AS tests_count,
+               ROUND(AVG(ts.score_percent), 1) AS avg_score,
+               SUM(ts.correct_answers) AS correct_total,
+               COALESCE(NULLIF(u.first_name, ''), NULLIF(u.username, ''), CAST(u.user_id AS TEXT)) AS display_name
+        FROM test_sessions ts
+        JOIN users u ON u.user_id = ts.user_id
+        WHERE u.role = 'student'
+          AND (u.is_blocked = 0 OR u.is_blocked IS NULL)
+          AND date(ts.finished_at) >= date(?)
+          AND date(ts.finished_at) <= date(?)
+        GROUP BY ts.user_id
+        ORDER BY tests_count DESC, avg_score DESC, correct_total DESC, ts.user_id ASC
+        LIMIT ?
+        """,
+        (week_start, week_end, limit),
+    )
+    return [
+        {
+            "user_id": row[0],
+            "tests_count": row[1] or 0,
+            "avg_score": row[2] or 0.0,
+            "correct_total": row[3] or 0,
+            "display_name": row[4],
+        }
+        for row in rows
+    ]
+
+
+async def get_user_weekly_tests_rank(user_id: int, week_start: str, week_end: str) -> Optional[Dict]:
+    """Get student's weekly position and stats."""
+    db = get_db()
+    row = await db.fetchone(
+        """
+        WITH weekly AS (
+            SELECT ts.user_id,
+                   COUNT(*) AS tests_count,
+                   ROUND(AVG(ts.score_percent), 1) AS avg_score,
+                   SUM(ts.correct_answers) AS correct_total
+            FROM test_sessions ts
+            JOIN users u ON u.user_id = ts.user_id
+            WHERE u.role = 'student'
+              AND (u.is_blocked = 0 OR u.is_blocked IS NULL)
+              AND date(ts.finished_at) >= date(?)
+              AND date(ts.finished_at) <= date(?)
+            GROUP BY ts.user_id
+        ),
+        ranked AS (
+            SELECT user_id, tests_count, avg_score, correct_total,
+                   ROW_NUMBER() OVER (
+                       ORDER BY tests_count DESC, avg_score DESC, correct_total DESC, user_id ASC
+                   ) AS rank_num
+            FROM weekly
+        )
+        SELECT rank_num, tests_count, avg_score, correct_total
+        FROM ranked
+        WHERE user_id = ?
+        """,
+        (week_start, week_end, user_id),
+    )
+    if not row:
+        return None
+    return {
+        "rank": row[0],
+        "tests_count": row[1],
+        "avg_score": row[2],
+        "correct_total": row[3],
+    }
+
+
+async def get_last_test_session(user_id: int) -> Optional[Dict]:
+    """Get latest completed test session for user."""
+    db = get_db()
+    row = await db.fetchone(
+        """
+        SELECT id, user_id, language, topic, total_questions, correct_answers, score_percent, finished_at
+        FROM test_sessions
+        WHERE user_id = ?
+        ORDER BY finished_at DESC, id DESC
+        LIMIT 1
+        """,
+        (user_id,),
+    )
+    if not row:
+        return None
+    return {
+        "id": row[0],
+        "user_id": row[1],
+        "language": row[2],
+        "topic": row[3],
+        "total_questions": row[4],
+        "correct_answers": row[5],
+        "score_percent": row[6],
+        "finished_at": row[7],
+    }
+
+
+async def create_shared_result(from_user_id: int, session_id: int, expires_at: Optional[str] = None) -> str:
+    """Create share token for a quiz session and return it."""
+    db = get_db()
+    token = secrets.token_urlsafe(8)
+    await db.execute(
+        """
+        INSERT INTO shared_results (share_token, from_user_id, session_id, expires_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (token, from_user_id, session_id, expires_at),
+    )
+    return token
+
+
+async def get_shared_result(share_token: str) -> Optional[Dict]:
+    """Get shared test session by token. Returns None if token expired or unknown."""
+    db = get_db()
+    row = await db.fetchone(
+        """
+        SELECT sr.share_token,
+               sr.from_user_id,
+               sr.session_id,
+               sr.created_at,
+               sr.expires_at,
+               ts.language,
+               ts.topic,
+               ts.total_questions,
+               ts.correct_answers,
+               ts.score_percent,
+               ts.finished_at,
+               COALESCE(NULLIF(u.first_name, ''), NULLIF(u.username, ''), CAST(u.user_id AS TEXT)) AS sender_name
+        FROM shared_results sr
+        JOIN test_sessions ts ON ts.id = sr.session_id
+        JOIN users u ON u.user_id = sr.from_user_id
+        WHERE sr.share_token = ?
+          AND (sr.expires_at IS NULL OR datetime(sr.expires_at) > datetime('now'))
+        LIMIT 1
+        """,
+        (share_token,),
+    )
+    if not row:
+        return None
+    return {
+        "share_token": row[0],
+        "from_user_id": row[1],
+        "session_id": row[2],
+        "created_at": row[3],
+        "expires_at": row[4],
+        "language": row[5],
+        "topic": row[6],
+        "total_questions": row[7],
+        "correct_answers": row[8],
+        "score_percent": row[9],
+        "finished_at": row[10],
+        "sender_name": row[11],
+    }

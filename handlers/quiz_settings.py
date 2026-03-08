@@ -19,7 +19,16 @@ async def count_selected(callback: CallbackQuery, state: FSMContext):
     topic = data["topic"]
     level = data.get("level", "A2")
 
-    lang_flag = "🇬🇧" if language == "English" else "🇪🇸"
+    lang_flag_map = {
+        "English": "🇬🇧",
+        "Spanish": "🇪🇸",
+        "French": "🇫🇷",
+        "German": "🇩🇪",
+        "Mathematics": "📐",
+        "History": "🏛",
+        "Biology": "🧬",
+    }
+    lang_flag = lang_flag_map.get(language, "📘")
 
     await state.set_state(QuizFlow.generating_test)
     await callback.message.edit_text(
@@ -47,12 +56,15 @@ async def count_selected(callback: CallbackQuery, state: FSMContext):
         return
 
     source = questions[0].get("_source", "llm")
-    mode_text = "LLM" if source == "llm" else "fallback"
+    mode_text_map = {"llm": "LLM", "fallback": "fallback", "imported": "imported"}
+    mode_text = mode_text_map.get(source, source)
     if source == "fallback":
         reason = (questions[0].get("_source_reason") or "LLM недоступен").strip()
         if len(reason) > 140:
             reason = reason[:137] + "..."
         await callback.message.answer(f"ℹ️ Режим: {mode_text}\nПричина: {reason}")
+    elif source == "imported":
+        await callback.message.answer("ℹ️ Режим: imported (вопросы из загруженного файла)")
     else:
         await callback.message.answer(f"ℹ️ Режим: {mode_text}")
 

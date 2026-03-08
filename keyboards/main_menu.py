@@ -32,6 +32,7 @@ def student_menu_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📅 Расписание уроков", callback_data="menu:raspisanie")],
         [InlineKeyboardButton(text="📝 Домашние задания", callback_data="menu:dz")],
         [InlineKeyboardButton(text="🎓 Пройти тест", callback_data="start_test")],
+        [InlineKeyboardButton(text="🏆 Соревнования", callback_data="menu:social")],
         [InlineKeyboardButton(text="📈 Результаты тестов", callback_data="my_results")],
         [InlineKeyboardButton(text="👤 Профиль", callback_data="menu:profile"),
          InlineKeyboardButton(text="⚙️ Настройки", callback_data="menu:settings")],
@@ -44,6 +45,19 @@ def quiz_home_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="\U0001f4dd \u041f\u0440\u043e\u0439\u0442\u0438 \u0442\u0435\u0441\u0442", callback_data="start_test")],
         [InlineKeyboardButton(text="\U0001f3af \u0417\u0430\u0434\u0430\u043d\u0438\u0435 \u0434\u043d\u044f", callback_data="daily_challenge")],
+        [InlineKeyboardButton(text="\U0001f3c6 \u0421\u043e\u0446-\u0444\u0443\u043d\u043a\u0446\u0438\u0438", callback_data="social:hub")],
         [InlineKeyboardButton(text="\U0001f4c8 \u041c\u043e\u0438 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u044b", callback_data="my_results")],
+        [home_button()],
+    ])
+
+
+def social_menu_keyboard() -> InlineKeyboardMarkup:
+    """Menu for competitions and social features."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏆 Таблица лидеров XP", callback_data="social:leaderboard")],
+        [InlineKeyboardButton(text="⚔️ Челлендж недели", callback_data="social:weekly")],
+        [InlineKeyboardButton(text="🔥 Регулярность", callback_data="social:regularity")],
+        [InlineKeyboardButton(text="🤝 Поделиться результатом", callback_data="social:share_last")],
+        [InlineKeyboardButton(text="◀️ Назад к тестам", callback_data="my_results")],
         [home_button()],
     ])

@@ -10,6 +10,11 @@ def language_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🇬🇧 English", callback_data="lang:English")],
         [InlineKeyboardButton(text="🇪🇸 Español", callback_data="lang:Spanish")],
+        [InlineKeyboardButton(text="🇫🇷 Français", callback_data="lang:French")],
+        [InlineKeyboardButton(text="🇩🇪 Deutsch", callback_data="lang:German")],
+        [InlineKeyboardButton(text="📐 Математика", callback_data="lang:Mathematics")],
+        [InlineKeyboardButton(text="🏛 История", callback_data="lang:History")],
+        [InlineKeyboardButton(text="🧬 Биология", callback_data="lang:Biology")],
         [home_button()],
     ])
 

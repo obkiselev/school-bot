@@ -165,6 +165,22 @@ class Settings(BaseSettings):
         default="qwen2.5-7b-instruct",
         description="LLM model name"
     )
+    STT_ENABLED: bool = Field(
+        default=True,
+        description="Enable speech-to-text for voice/audio quiz answers"
+    )
+    STT_MODEL: str = Field(
+        default="whisper-1",
+        description="STT model name for OpenAI-compatible audio transcriptions"
+    )
+    STT_LANGUAGE: Optional[str] = Field(
+        default=None,
+        description="Optional language hint for STT (e.g. ru, en, es)"
+    )
+    STT_MAX_FILE_MB: int = Field(
+        default=20,
+        description="Maximum accepted voice/audio file size in megabytes"
+    )
 
     # Quiz settings (темы и уровни для тестирования по языкам)
     TOPICS: dict = Field(default={
@@ -235,6 +251,79 @@ class Settings(BaseSettings):
                 "Reading: News Articles",
             ],
         },
+        "French": {
+            "A1": [
+                "Salutations et présentations",
+                "Les nombres, couleurs et objets de classe",
+                "La famille et les loisirs",
+                "Verbes réguliers au présent",
+                "Les jours de la semaine et le temps",
+            ],
+            "A2": [
+                "Passé composé (bases)",
+                "Articles partitifs et alimentation",
+                "Prépositions de lieu",
+                "Descriptions des personnes et des lieux",
+                "Dialogues du quotidien",
+            ],
+            "B1": [
+                "Imparfait vs passé composé",
+                "Pronoms relatifs (qui/que/dont)",
+                "Conditionnel présent",
+                "Opinions et argumentation simple",
+                "Compréhension de textes courts",
+            ],
+        },
+        "German": {
+            "A1": [
+                "Begrüßung und Vorstellung",
+                "Zahlen, Farben, Schulsachen",
+                "Familie und Tagesablauf",
+                "Präsens: regelmäßige Verben",
+                "Wochentage und Uhrzeit",
+            ],
+            "A2": [
+                "Perfekt (основы)",
+                "Модальные глаголы",
+                "Порядок слов в предложении",
+                "Покупки и еда",
+                "Путешествия и транспорт",
+            ],
+            "B1": [
+                "Präteritum и Perfekt",
+                "Nebensätze (weil, dass, wenn)",
+                "Passiv (основы)",
+                "Темы: школа и профессии",
+                "Чтение: короткие статьи",
+            ],
+        },
+        "Mathematics": {
+            "School": [
+                "Дроби и проценты",
+                "Линейные уравнения",
+                "Геометрия: площади и периметры",
+                "Степени и корни",
+                "Текстовые задачи",
+            ],
+        },
+        "History": {
+            "School": [
+                "Древний мир",
+                "Средневековье",
+                "Новая история",
+                "История России XIX века",
+                "История России XX века",
+            ],
+        },
+        "Biology": {
+            "School": [
+                "Клетка и её органоиды",
+                "Системы органов человека",
+                "Генетика: основы",
+                "Экосистемы и пищевые цепи",
+                "Эволюция",
+            ],
+        },
     })
     LEVEL_DESCRIPTIONS: dict = Field(default={
         "A1": "complete beginner (basic vocabulary, simple present tense, very short sentences)",
@@ -243,6 +332,7 @@ class Settings(BaseSettings):
         "B1": "intermediate learner (can discuss familiar topics, understands main ideas, uses various tenses)",
         "B2": "upper-intermediate learner (can discuss abstract topics, understands complex texts, uses advanced grammar)",
         "C1": "advanced learner (near-native comprehension, nuanced vocabulary, complex grammar structures)",
+        "School": "school-level quizzes for core subjects (math/history/biology)",
     })
     QUESTION_COUNTS: list = Field(default=[5, 10, 15, 20])
 

@@ -1,4 +1,5 @@
 """OpenAI-compatible LLM client with bridge -> direct fallback."""
+import io
 import logging
 from typing import Optional
 
@@ -8,6 +9,7 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 _last_llm_error: str | None = None
+_last_stt_error: str | None = None
 
 
 def _normalize_base_url(url: Optional[str]) -> Optional[str]:
@@ -19,6 +21,11 @@ def _normalize_base_url(url: Optional[str]) -> Optional[str]:
 def get_last_llm_error() -> str | None:
     """Return the last LLM transport/config error captured by chat_completion."""
     return _last_llm_error
+
+
+def get_last_stt_error() -> str | None:
+    """Return the last STT transport/config error captured by transcribe_audio_bytes."""
+    return _last_stt_error
 
 
 def _iter_llm_targets() -> list[tuple[str, str, str]]:
@@ -35,6 +42,12 @@ def _iter_llm_targets() -> list[tuple[str, str, str]]:
         targets.append((direct_url, api_key, "direct"))
 
     return targets
+
+
+def _build_audio_file_object(data: bytes, filename: str) -> io.BytesIO:
+    file_obj = io.BytesIO(data)
+    file_obj.name = filename
+    return file_obj
 
 
 async def _request_chat_completion(
@@ -95,4 +108,63 @@ async def chat_completion(prompt: str, temperature: float = 0.7, max_tokens: int
     logger.error("All LLM endpoints failed (model=%s, prompt_len=%d)", settings.LLM_MODEL, len(prompt))
     if _last_llm_error is None:
         _last_llm_error = "All LLM endpoints failed"
+    return None
+
+
+async def _request_audio_transcription(
+    base_url: str,
+    api_key: str,
+    audio_bytes: bytes,
+    filename: str,
+) -> str:
+    client = AsyncOpenAI(
+        base_url=base_url,
+        api_key=api_key,
+        timeout=settings.LLM_REQUEST_TIMEOUT,
+    )
+    transcription = await client.audio.transcriptions.create(
+        model=settings.STT_MODEL,
+        file=_build_audio_file_object(audio_bytes, filename),
+        language=settings.STT_LANGUAGE,
+    )
+    if hasattr(transcription, "text"):
+        return (transcription.text or "").strip()
+    if isinstance(transcription, dict):
+        return str(transcription.get("text") or "").strip()
+    return str(transcription).strip()
+
+
+async def transcribe_audio_bytes(audio_bytes: bytes, filename: str = "voice.ogg") -> str | None:
+    """Transcribe voice/audio bytes via OpenAI-compatible Whisper endpoint(s)."""
+    global _last_stt_error
+
+    if not settings.STT_ENABLED:
+        _last_stt_error = "STT disabled by configuration"
+        return None
+
+    if not audio_bytes:
+        _last_stt_error = "Empty audio payload"
+        return None
+
+    targets = _iter_llm_targets()
+    if not targets:
+        _last_stt_error = "No STT endpoints configured"
+        logger.error("No STT endpoints configured (LLM_BRIDGE_URL/LLM_BASE_URL are empty)")
+        return None
+
+    for base_url, api_key, label in targets:
+        try:
+            text = await _request_audio_transcription(base_url, api_key, audio_bytes, filename)
+            if text:
+                _last_stt_error = None
+                return text
+            _last_stt_error = f"{label} endpoint returned empty transcription"
+            logger.warning("STT %s endpoint returned empty transcription", label)
+        except Exception as e:
+            _last_stt_error = f"{label} endpoint failed: {e}"
+            logger.warning("STT request failed via %s endpoint (url=%s): %s", label, base_url, e)
+
+    if _last_stt_error is None:
+        _last_stt_error = "All STT endpoints failed"
+    logger.error("All STT endpoints failed (model=%s, bytes=%d)", settings.STT_MODEL, len(audio_bytes))
     return None

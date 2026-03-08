@@ -10,6 +10,8 @@ REQUIRED_FIELDS = {
     "fill_blank": {"question", "correct", "explanation"},
     "translation": {"question", "correct", "explanation"},
     "true_false": {"question", "correct", "explanation"},
+    "matching": {"question", "correct", "explanation"},
+    "audio": {"question", "correct", "explanation"},
 }
 
 

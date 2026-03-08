@@ -40,6 +40,7 @@ async def _set_user_commands(bot, user_id: int, role: str):
             BotCommand(command="profile", description="Мой профиль"),
             BotCommand(command="settings", description="Настройки уведомлений"),
             BotCommand(command="remind", description="Мои напоминания"),
+            BotCommand(command="import_questions", description="Импорт вопросов из JSON"),
             BotCommand(command="allow", description="Добавить пользователя"),
             BotCommand(command="block", description="Заблокировать пользователя"),
             BotCommand(command="users", description="Список пользователей"),
@@ -56,6 +57,7 @@ async def _set_user_commands(bot, user_id: int, role: str):
             BotCommand(command="profile", description="Мой профиль"),
             BotCommand(command="settings", description="Настройки уведомлений"),
             BotCommand(command="remind", description="Мои напоминания"),
+            BotCommand(command="import_questions", description="Импорт вопросов из JSON"),
             BotCommand(command="help", description="Справка"),
         ]
     elif role == "student":
@@ -64,6 +66,8 @@ async def _set_user_commands(bot, user_id: int, role: str):
             BotCommand(command="raspisanie", description="Расписание уроков"),
             BotCommand(command="dz", description="Домашние задания"),
             BotCommand(command="test", description="Пройти тест"),
+            BotCommand(command="social", description="Соревнования"),
+            BotCommand(command="share", description="Открыть shared-результат"),
             BotCommand(command="profile", description="Мой профиль"),
             BotCommand(command="settings", description="Настройки уведомлений"),
             BotCommand(command="remind", description="Мои напоминания"),
@@ -101,6 +105,8 @@ async def cmd_help(message: Message):
         "/raspisanie — Расписание уроков",
         "/dz — Домашние задания",
         "/test — Пройти тест по языку",
+        "/social — Соревнования и соц-функции",
+        "/share <token> — Открыть shared-результат",
         "/settings — Настройки уведомлений",
         "/remind — Личные ежедневные напоминания",
         "/profile — Мой профиль",
@@ -109,6 +115,7 @@ async def cmd_help(message: Message):
 
     if role in ("admin", "parent"):
         lines.append("/ocenki — Оценки")
+        lines.append("/import_questions — Импорт вопросов из JSON")
 
     if role == "admin":
         lines.append("\n<b>Команды администратора</b>")

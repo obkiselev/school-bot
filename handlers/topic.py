@@ -9,6 +9,16 @@ from keyboards.quiz_kb import question_count_keyboard, topic_keyboard
 
 router = Router()
 
+LANG_LABELS = {
+    "English": "английскому",
+    "Spanish": "испанскому",
+    "French": "французскому",
+    "German": "немецкому",
+    "Mathematics": "математике",
+    "History": "истории",
+    "Biology": "биологии",
+}
+
 
 @router.callback_query(QuizFlow.choosing_topic, F.data.startswith("topic:"))
 async def topic_selected(callback: CallbackQuery, state: FSMContext):
@@ -49,10 +59,10 @@ async def back_to_topic(callback: CallbackQuery, state: FSMContext):
     level = data.get("level", "A2")
     await state.set_state(QuizFlow.choosing_topic)
 
-    lang_name = "английскому" if language == "English" else "испанскому"
+    lang_name = LANG_LABELS.get(language, language)
     await callback.message.edit_text(
         f"📚 Уровень: {level}\n"
-        f"Выбери тему по {lang_name} языку:",
+        f"Выбери тему по {lang_name}:",
         reply_markup=topic_keyboard(language, level),
     )
     await callback.answer()

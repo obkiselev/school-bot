@@ -13,6 +13,16 @@ from services.level_adapter import get_user_level, DEFAULT_LEVEL
 
 router = Router()
 
+LANG_LABELS = {
+    "English": "английскому",
+    "Spanish": "испанскому",
+    "French": "французскому",
+    "German": "немецкому",
+    "Mathematics": "математике",
+    "History": "истории",
+    "Biology": "биологии",
+}
+
 
 @router.message(Command("test"))
 async def cmd_test(message: Message, state: FSMContext):
@@ -106,10 +116,10 @@ async def language_selected(callback: CallbackQuery, state: FSMContext):
         # Student — level auto-detected, skip to topic selection
         await state.update_data(level=auto_level)
         await state.set_state(QuizFlow.choosing_topic)
-        lang_name = "английскому" if language == "English" else "испанскому"
+        lang_name = LANG_LABELS.get(language, language)
         await callback.message.edit_text(
             f"📚 Уровень: {auto_level}\n"
-            f"Выбери тему по {lang_name} языку:",
+            f"Выбери тему по {lang_name}:",
             reply_markup=topic_keyboard(language, auto_level),
         )
     else:
@@ -130,10 +140,10 @@ async def level_selected(callback: CallbackQuery, state: FSMContext):
     await state.update_data(level=level)
     await state.set_state(QuizFlow.choosing_topic)
 
-    lang_name = "английскому" if language == "English" else "испанскому"
+    lang_name = LANG_LABELS.get(language, language)
     await callback.message.edit_text(
         f"📚 Уровень: {level}\n"
-        f"Выбери тему по {lang_name} языку:",
+        f"Выбери тему по {lang_name}:",
         reply_markup=topic_keyboard(language, level),
     )
     await callback.answer()
