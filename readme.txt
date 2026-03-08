@@ -1,5 +1,5 @@
 School Bot — Единый школьный Telegram-бот
-Текущая версия: 1.6.0
+Текущая версия: 1.7.0
 
 ============================================
 ПЛАН РАЗВИТИЯ
@@ -47,11 +47,14 @@ v1.6.0 — Веб-панель и рассылки
   - Веб-панель админа (статистика пользователей, графики)
   - Групповые рассылки от админа
   - Экспорт оценок/расписания в PDF (планируется)
+v1.7.0 — Документы и отчеты
+  - Экспорт оценок/расписания в PDF (/report)
+  - История массовых рассылок в веб-панели
 
 --- Планируется ---
-v1.7.0 — Документы и отчеты
-  - Экспорт оценок/расписания в PDF
-  - История массовых рассылок в веб-панели
+v1.8.0 — Отчеты панели
+  - Экспорт истории рассылок в CSV/PDF
+  - Фильтры и поиск в истории рассылок
 
 ============================================
 БЫСТРЫЙ СТАРТ
@@ -78,3 +81,16 @@ v1.7.0 — Документы и отчеты
    - Ввести логин/пароль mos.ru
    - Ввести SMS-код
    - Выбрать детей
+
+ADMIN WEB QUICK ACCESS (v1.6.0)
+- URL must be: /admin?token=<ADMIN_WEB_TOKEN>
+- Secure way (recommended): keep ADMIN_WEB_HOST=127.0.0.1 and use SSH tunnel.
+  ssh -L 8088:127.0.0.1:8088 -i ~/.ssh/id_ed25519_rag -p 4422 school_bot@45.152.113.91
+- Then open: http://127.0.0.1:8088/admin?token=<ADMIN_WEB_TOKEN>
+- Direct external access requires ADMIN_WEB_HOST=0.0.0.0 and open firewall port 8088.
+
+v1.7.0 STATUS (done)
+- Added command /report for PDF export:
+  - schedule: today/tomorrow/week
+  - grades (admin/parent): today/week/month
+- Added broadcast history block to admin web panel (last 30 runs).

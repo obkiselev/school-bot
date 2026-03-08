@@ -1,4 +1,4 @@
-"""Start command handler."""
+﻿"""Start command handler."""
 import asyncio
 import ssl as _ssl
 import time
@@ -19,7 +19,7 @@ router = Router()
 
 
 async def _close_octodiary_session(api) -> None:
-    """Закрыть внутреннюю сессию OctoDiary после диагностического теста."""
+    """Р—Р°РєСЂС‹С‚СЊ РІРЅСѓС‚СЂРµРЅРЅСЋСЋ СЃРµСЃСЃРёСЋ OctoDiary РїРѕСЃР»Рµ РґРёР°РіРЅРѕСЃС‚РёС‡РµСЃРєРѕРіРѕ С‚РµСЃС‚Р°."""
     try:
         session = getattr(api, "_login_info", {}).get("session")
         if session and not session.closed:
@@ -32,51 +32,54 @@ async def _set_user_commands(bot, user_id: int, role: str):
     """Set Telegram Menu commands per user role."""
     if role == "admin":
         commands = [
-            BotCommand(command="start", description="Главное меню"),
-            BotCommand(command="raspisanie", description="Расписание уроков"),
-            BotCommand(command="ocenki", description="Оценки"),
-            BotCommand(command="dz", description="Домашние задания"),
-            BotCommand(command="test", description="Пройти тест"),
-            BotCommand(command="profile", description="Мой профиль"),
-            BotCommand(command="settings", description="Настройки уведомлений"),
-            BotCommand(command="remind", description="Мои напоминания"),
-            BotCommand(command="import_questions", description="Импорт вопросов из JSON"),
-            BotCommand(command="allow", description="Добавить пользователя"),
-            BotCommand(command="block", description="Заблокировать пользователя"),
-            BotCommand(command="users", description="Список пользователей"),
-            BotCommand(command="health", description="Проверка состояния"),
-            BotCommand(command="help", description="Справка"),
+            BotCommand(command="start", description="Р“Р»Р°РІРЅРѕРµ РјРµРЅСЋ"),
+            BotCommand(command="raspisanie", description="Р Р°СЃРїРёСЃР°РЅРёРµ СѓСЂРѕРєРѕРІ"),
+            BotCommand(command="ocenki", description="РћС†РµРЅРєРё"),
+            BotCommand(command="dz", description="Р”РѕРјР°С€РЅРёРµ Р·Р°РґР°РЅРёСЏ"),
+            BotCommand(command="test", description="РџСЂРѕР№С‚Рё С‚РµСЃС‚"),
+            BotCommand(command="profile", description="РњРѕР№ РїСЂРѕС„РёР»СЊ"),
+            BotCommand(command="report", description="PDF отчеты"),
+            BotCommand(command="settings", description="РќР°СЃС‚СЂРѕР№РєРё СѓРІРµРґРѕРјР»РµРЅРёР№"),
+            BotCommand(command="remind", description="РњРѕРё РЅР°РїРѕРјРёРЅР°РЅРёСЏ"),
+            BotCommand(command="import_questions", description="РРјРїРѕСЂС‚ РІРѕРїСЂРѕСЃРѕРІ РёР· JSON"),
+            BotCommand(command="allow", description="Р”РѕР±Р°РІРёС‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ"),
+            BotCommand(command="block", description="Р—Р°Р±Р»РѕРєРёСЂРѕРІР°С‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ"),
+            BotCommand(command="users", description="РЎРїРёСЃРѕРє РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№"),
+            BotCommand(command="health", description="РџСЂРѕРІРµСЂРєР° СЃРѕСЃС‚РѕСЏРЅРёСЏ"),
+            BotCommand(command="help", description="РЎРїСЂР°РІРєР°"),
         ]
     elif role == "parent":
         commands = [
-            BotCommand(command="start", description="Главное меню"),
-            BotCommand(command="raspisanie", description="Расписание уроков"),
-            BotCommand(command="ocenki", description="Оценки"),
-            BotCommand(command="dz", description="Домашние задания"),
-            BotCommand(command="test", description="Пройти тест"),
-            BotCommand(command="profile", description="Мой профиль"),
-            BotCommand(command="settings", description="Настройки уведомлений"),
-            BotCommand(command="remind", description="Мои напоминания"),
-            BotCommand(command="import_questions", description="Импорт вопросов из JSON"),
-            BotCommand(command="help", description="Справка"),
+            BotCommand(command="start", description="Р“Р»Р°РІРЅРѕРµ РјРµРЅСЋ"),
+            BotCommand(command="raspisanie", description="Р Р°СЃРїРёСЃР°РЅРёРµ СѓСЂРѕРєРѕРІ"),
+            BotCommand(command="ocenki", description="РћС†РµРЅРєРё"),
+            BotCommand(command="dz", description="Р”РѕРјР°С€РЅРёРµ Р·Р°РґР°РЅРёСЏ"),
+            BotCommand(command="test", description="РџСЂРѕР№С‚Рё С‚РµСЃС‚"),
+            BotCommand(command="profile", description="РњРѕР№ РїСЂРѕС„РёР»СЊ"),
+            BotCommand(command="report", description="PDF отчеты"),
+            BotCommand(command="settings", description="РќР°СЃС‚СЂРѕР№РєРё СѓРІРµРґРѕРјР»РµРЅРёР№"),
+            BotCommand(command="remind", description="РњРѕРё РЅР°РїРѕРјРёРЅР°РЅРёСЏ"),
+            BotCommand(command="import_questions", description="РРјРїРѕСЂС‚ РІРѕРїСЂРѕСЃРѕРІ РёР· JSON"),
+            BotCommand(command="help", description="РЎРїСЂР°РІРєР°"),
         ]
     elif role == "student":
         commands = [
-            BotCommand(command="start", description="Главное меню"),
-            BotCommand(command="raspisanie", description="Расписание уроков"),
-            BotCommand(command="dz", description="Домашние задания"),
-            BotCommand(command="test", description="Пройти тест"),
-            BotCommand(command="social", description="Соревнования"),
-            BotCommand(command="share", description="Открыть shared-результат"),
-            BotCommand(command="profile", description="Мой профиль"),
-            BotCommand(command="settings", description="Настройки уведомлений"),
-            BotCommand(command="remind", description="Мои напоминания"),
-            BotCommand(command="help", description="Справка"),
+            BotCommand(command="start", description="Р“Р»Р°РІРЅРѕРµ РјРµРЅСЋ"),
+            BotCommand(command="raspisanie", description="Р Р°СЃРїРёСЃР°РЅРёРµ СѓСЂРѕРєРѕРІ"),
+            BotCommand(command="dz", description="Р”РѕРјР°С€РЅРёРµ Р·Р°РґР°РЅРёСЏ"),
+            BotCommand(command="test", description="РџСЂРѕР№С‚Рё С‚РµСЃС‚"),
+            BotCommand(command="social", description="РЎРѕСЂРµРІРЅРѕРІР°РЅРёСЏ"),
+            BotCommand(command="share", description="РћС‚РєСЂС‹С‚СЊ shared-СЂРµР·СѓР»СЊС‚Р°С‚"),
+            BotCommand(command="profile", description="РњРѕР№ РїСЂРѕС„РёР»СЊ"),
+            BotCommand(command="report", description="PDF отчеты"),
+            BotCommand(command="settings", description="РќР°СЃС‚СЂРѕР№РєРё СѓРІРµРґРѕРјР»РµРЅРёР№"),
+            BotCommand(command="remind", description="РњРѕРё РЅР°РїРѕРјРёРЅР°РЅРёСЏ"),
+            BotCommand(command="help", description="РЎРїСЂР°РІРєР°"),
         ]
     else:
         commands = [
-            BotCommand(command="start", description="Главное меню"),
-            BotCommand(command="help", description="Справка"),
+            BotCommand(command="start", description="Р“Р»Р°РІРЅРѕРµ РјРµРЅСЋ"),
+            BotCommand(command="help", description="РЎРїСЂР°РІРєР°"),
         ]
     try:
         await bot.set_my_commands(commands, scope=BotCommandScopeChat(chat_id=user_id))
@@ -86,45 +89,46 @@ async def _set_user_commands(bot, user_id: int, role: str):
 
 @router.message(Command("help"))
 async def cmd_help(message: Message):
-    """Справка по доступным командам."""
+    """РЎРїСЂР°РІРєР° РїРѕ РґРѕСЃС‚СѓРїРЅС‹Рј РєРѕРјР°РЅРґР°Рј."""
     user_id = message.from_user.id
     role = await get_user_role(user_id)
 
     if not role:
         await message.answer(
-            "<b>Справка</b>\n\n"
-            "/start — Начать работу с ботом\n\n"
-            "Для получения доступа обратитесь к администратору.",
+            "<b>РЎРїСЂР°РІРєР°</b>\n\n"
+            "/start вЂ” РќР°С‡Р°С‚СЊ СЂР°Р±РѕС‚Сѓ СЃ Р±РѕС‚РѕРј\n\n"
+            "Р”Р»СЏ РїРѕР»СѓС‡РµРЅРёСЏ РґРѕСЃС‚СѓРїР° РѕР±СЂР°С‚РёС‚РµСЃСЊ Рє Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂСѓ.",
             parse_mode="HTML",
         )
         return
 
     lines = [
-        "<b>Доступные команды</b>\n",
-        "/start — Главное меню",
-        "/raspisanie — Расписание уроков",
-        "/dz — Домашние задания",
-        "/test — Пройти тест по языку",
-        "/social — Соревнования и соц-функции",
-        "/share &lt;token&gt; — Открыть shared-результат",
-        "/settings — Настройки уведомлений",
-        "/remind — Личные ежедневные напоминания",
-        "/profile — Мой профиль",
-        "/help — Справка (эта страница)",
+        "<b>Р”РѕСЃС‚СѓРїРЅС‹Рµ РєРѕРјР°РЅРґС‹</b>\n",
+        "/start вЂ” Р“Р»Р°РІРЅРѕРµ РјРµРЅСЋ",
+        "/raspisanie вЂ” Р Р°СЃРїРёСЃР°РЅРёРµ СѓСЂРѕРєРѕРІ",
+        "/dz вЂ” Р”РѕРјР°С€РЅРёРµ Р·Р°РґР°РЅРёСЏ",
+        "/test вЂ” РџСЂРѕР№С‚Рё С‚РµСЃС‚ РїРѕ СЏР·С‹РєСѓ",
+        "/social вЂ” РЎРѕСЂРµРІРЅРѕРІР°РЅРёСЏ Рё СЃРѕС†-С„СѓРЅРєС†РёРё",
+        "/share &lt;token&gt; вЂ” РћС‚РєСЂС‹С‚СЊ shared-СЂРµР·СѓР»СЊС‚Р°С‚",
+        "/settings вЂ” РќР°СЃС‚СЂРѕР№РєРё СѓРІРµРґРѕРјР»РµРЅРёР№",
+        "/remind вЂ” Р›РёС‡РЅС‹Рµ РµР¶РµРґРЅРµРІРЅС‹Рµ РЅР°РїРѕРјРёРЅР°РЅРёСЏ",
+        "/profile вЂ” РњРѕР№ РїСЂРѕС„РёР»СЊ",
+        "/report — PDF-отчеты (расписание/оценки)",
+        "/help вЂ” РЎРїСЂР°РІРєР° (СЌС‚Р° СЃС‚СЂР°РЅРёС†Р°)",
     ]
 
     if role in ("admin", "parent"):
-        lines.append("/ocenki — Оценки")
-        lines.append("/import_questions — Импорт вопросов из JSON")
+        lines.append("/ocenki вЂ” РћС†РµРЅРєРё")
+        lines.append("/import_questions вЂ” РРјРїРѕСЂС‚ РІРѕРїСЂРѕСЃРѕРІ РёР· JSON")
 
     if role == "admin":
-        lines.append("\n<b>Команды администратора</b>")
-        lines.append("/allow &lt;id&gt; [student|parent|admin] — Добавить пользователя")
-        lines.append("/block &lt;id&gt; — Заблокировать пользователя")
-        lines.append("/users — Список пользователей")
-        lines.append("/health — Проверка состояния бота")
+        lines.append("\n<b>РљРѕРјР°РЅРґС‹ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂР°</b>")
+        lines.append("/allow &lt;id&gt; [student|parent|admin] вЂ” Р”РѕР±Р°РІРёС‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ")
+        lines.append("/block &lt;id&gt; вЂ” Р—Р°Р±Р»РѕРєРёСЂРѕРІР°С‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ")
+        lines.append("/users вЂ” РЎРїРёСЃРѕРє РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№")
+        lines.append("/health вЂ” РџСЂРѕРІРµСЂРєР° СЃРѕСЃС‚РѕСЏРЅРёСЏ Р±РѕС‚Р°")
 
-    lines.append("\n<i>Используйте кнопки меню для удобной навигации.</i>")
+    lines.append("\n<i>РСЃРїРѕР»СЊР·СѓР№С‚Рµ РєРЅРѕРїРєРё РјРµРЅСЋ РґР»СЏ СѓРґРѕР±РЅРѕР№ РЅР°РІРёРіР°С†РёРё.</i>")
 
     kb = InlineKeyboardMarkup(inline_keyboard=[[home_button()]])
     await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=kb)
@@ -132,8 +136,8 @@ async def cmd_help(message: Message):
 
 @router.message(Command("testauth"))
 async def cmd_test_auth(message: Message):
-    """Диагностика соединения с МЭШ — тест изнутри бота."""
-    await message.answer("Запускаю диагностику МЭШ соединения...")
+    """Р”РёР°РіРЅРѕСЃС‚РёРєР° СЃРѕРµРґРёРЅРµРЅРёСЏ СЃ РњР­РЁ вЂ” С‚РµСЃС‚ РёР·РЅСѓС‚СЂРё Р±РѕС‚Р°."""
+    await message.answer("Р—Р°РїСѓСЃРєР°СЋ РґРёР°РіРЅРѕСЃС‚РёРєСѓ РњР­РЁ СЃРѕРµРґРёРЅРµРЅРёСЏ...")
 
     from octodiary.apis.async_ import AsyncMobileAPI
     from octodiary.urls import Systems
@@ -141,37 +145,37 @@ async def cmd_test_auth(message: Message):
 
     results = []
 
-    # Тест 1: aiohttp без wait_for
+    # РўРµСЃС‚ 1: aiohttp Р±РµР· wait_for
     t = time.time()
     api = AsyncMobileAPI(system=Systems.MES)
     try:
         await api.login("diag_test@test.ru", "WrongPass_Diag1")
-        results.append(f"Тест 1: НЕОЖИДАННЫЙ УСПЕХ ({time.time()-t:.2f}с)")
+        results.append(f"РўРµСЃС‚ 1: РќР•РћР–РР”РђРќРќР«Р™ РЈРЎРџР•РҐ ({time.time()-t:.2f}СЃ)")
     except aiohttp.ConnectionTimeoutError:
         elapsed = time.time() - t
         results.append(
-            f"Тест 1 ({elapsed:.2f}с): OctoDiary connect timeout — "
-            f"TCP+TLS не завершился за {elapsed:.0f}с"
+            f"РўРµСЃС‚ 1 ({elapsed:.2f}СЃ): OctoDiary connect timeout вЂ” "
+            f"TCP+TLS РЅРµ Р·Р°РІРµСЂС€РёР»СЃСЏ Р·Р° {elapsed:.0f}СЃ"
         )
     except aiohttp.ClientConnectorError as e:
         elapsed = time.time() - t
-        results.append(f"Тест 1 ({elapsed:.2f}с): DNS/connect error — {str(e)[:60]}")
+        results.append(f"РўРµСЃС‚ 1 ({elapsed:.2f}СЃ): DNS/connect error вЂ” {str(e)[:60]}")
     except asyncio.TimeoutError:
         elapsed = time.time() - t
-        results.append(f"Тест 1 ({elapsed:.2f}с): asyncio timeout")
+        results.append(f"РўРµСЃС‚ 1 ({elapsed:.2f}СЃ): asyncio timeout")
     except APIError as e:
         elapsed = time.time() - t
         results.append(
-            f"Тест 1 ({elapsed:.2f}с): APIError — {e.error_types} "
-            f"(СЕТЬ РАБОТАЕТ)"
+            f"РўРµСЃС‚ 1 ({elapsed:.2f}СЃ): APIError вЂ” {e.error_types} "
+            f"(РЎР•РўР¬ Р РђР‘РћРўРђР•Рў)"
         )
     except Exception as e:
         elapsed = time.time() - t
-        results.append(f"Тест 1 ({elapsed:.2f}с): {type(e).__name__}: {str(e)[:60]}")
+        results.append(f"РўРµСЃС‚ 1 ({elapsed:.2f}СЃ): {type(e).__name__}: {str(e)[:60]}")
     finally:
         await _close_octodiary_session(api)
 
-    # Тест 2: aiohttp с wait_for(15с)
+    # РўРµСЃС‚ 2: aiohttp СЃ wait_for(15СЃ)
     t = time.time()
     api = AsyncMobileAPI(system=Systems.MES)
     try:
@@ -179,32 +183,32 @@ async def cmd_test_auth(message: Message):
             api.login("diag_test2@test.ru", "WrongPass_Diag2"),
             timeout=15,
         )
-        results.append(f"Тест 2: НЕОЖИДАННЫЙ УСПЕХ ({time.time()-t:.2f}с)")
+        results.append(f"РўРµСЃС‚ 2: РќР•РћР–РР”РђРќРќР«Р™ РЈРЎРџР•РҐ ({time.time()-t:.2f}СЃ)")
     except aiohttp.ConnectionTimeoutError:
         elapsed = time.time() - t
         results.append(
-            f"Тест 2 ({elapsed:.2f}с): OctoDiary connect timeout — "
-            f"TCP+TLS не завершился за {elapsed:.0f}с"
+            f"РўРµСЃС‚ 2 ({elapsed:.2f}СЃ): OctoDiary connect timeout вЂ” "
+            f"TCP+TLS РЅРµ Р·Р°РІРµСЂС€РёР»СЃСЏ Р·Р° {elapsed:.0f}СЃ"
         )
     except aiohttp.ClientConnectorError as e:
         elapsed = time.time() - t
-        results.append(f"Тест 2 ({elapsed:.2f}с): DNS/connect error — {str(e)[:60]}")
+        results.append(f"РўРµСЃС‚ 2 ({elapsed:.2f}СЃ): DNS/connect error вЂ” {str(e)[:60]}")
     except asyncio.TimeoutError:
         elapsed = time.time() - t
-        results.append(f"Тест 2 ({elapsed:.2f}с): asyncio.wait_for(15с) истёк")
+        results.append(f"РўРµСЃС‚ 2 ({elapsed:.2f}СЃ): asyncio.wait_for(15СЃ) РёСЃС‚С‘Рє")
     except APIError as e:
         elapsed = time.time() - t
         results.append(
-            f"Тест 2 ({elapsed:.2f}с): APIError — {e.error_types} "
-            f"(СЕТЬ РАБОТАЕТ)"
+            f"РўРµСЃС‚ 2 ({elapsed:.2f}СЃ): APIError вЂ” {e.error_types} "
+            f"(РЎР•РўР¬ Р РђР‘РћРўРђР•Рў)"
         )
     except Exception as e:
         elapsed = time.time() - t
-        results.append(f"Тест 2 ({elapsed:.2f}с): {type(e).__name__}: {str(e)[:60]}")
+        results.append(f"РўРµСЃС‚ 2 ({elapsed:.2f}СЃ): {type(e).__name__}: {str(e)[:60]}")
     finally:
         await _close_octodiary_session(api)
 
-    # Тест 3: чистый TCP (без TLS)
+    # РўРµСЃС‚ 3: С‡РёСЃС‚С‹Р№ TCP (Р±РµР· TLS)
     t = time.time()
     try:
         reader, writer = await asyncio.wait_for(
@@ -213,13 +217,13 @@ async def cmd_test_auth(message: Message):
         )
         writer.close()
         await writer.wait_closed()
-        results.append(f"Тест 3 ({time.time()-t:.2f}с): TCP OK — login.mos.ru:443 доступен")
+        results.append(f"РўРµСЃС‚ 3 ({time.time()-t:.2f}СЃ): TCP OK вЂ” login.mos.ru:443 РґРѕСЃС‚СѓРїРµРЅ")
     except asyncio.TimeoutError:
-        results.append(f"Тест 3 ({time.time()-t:.2f}с): TCP TIMEOUT — порт 443 не отвечает")
+        results.append(f"РўРµСЃС‚ 3 ({time.time()-t:.2f}СЃ): TCP TIMEOUT вЂ” РїРѕСЂС‚ 443 РЅРµ РѕС‚РІРµС‡Р°РµС‚")
     except OSError as e:
-        results.append(f"Тест 3 ({time.time()-t:.2f}с): TCP ERROR — {str(e)[:60]}")
+        results.append(f"РўРµСЃС‚ 3 ({time.time()-t:.2f}СЃ): TCP ERROR вЂ” {str(e)[:60]}")
 
-    # Тест 4: TCP + TLS handshake (Python/OpenSSL)
+    # РўРµСЃС‚ 4: TCP + TLS handshake (Python/OpenSSL)
     t = time.time()
     try:
         ssl_ctx = _ssl.create_default_context()
@@ -229,28 +233,28 @@ async def cmd_test_auth(message: Message):
         )
         writer.close()
         await writer.wait_closed()
-        results.append(f"Тест 4 ({time.time()-t:.2f}с): TLS OK — Python/OpenSSL handshake")
+        results.append(f"РўРµСЃС‚ 4 ({time.time()-t:.2f}СЃ): TLS OK вЂ” Python/OpenSSL handshake")
     except asyncio.TimeoutError:
-        results.append(f"Тест 4 ({time.time()-t:.2f}с): TLS TIMEOUT >30с — OpenSSL заблокирован (JA3)")
+        results.append(f"РўРµСЃС‚ 4 ({time.time()-t:.2f}СЃ): TLS TIMEOUT >30СЃ вЂ” OpenSSL Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ (JA3)")
     except OSError as e:
-        results.append(f"Тест 4 ({time.time()-t:.2f}с): TLS ERROR — {str(e)[:60]}")
+        results.append(f"РўРµСЃС‚ 4 ({time.time()-t:.2f}СЃ): TLS ERROR вЂ” {str(e)[:60]}")
 
-    # Тест 5: curl_cffi GET к root login.mos.ru
+    # РўРµСЃС‚ 5: curl_cffi GET Рє root login.mos.ru
     t = time.time()
     try:
         from curl_cffi.requests import AsyncSession
         async with AsyncSession(impersonate="chrome124") as s:
             resp = await s.get("https://login.mos.ru/", allow_redirects=False)
         results.append(
-            f"Тест 5 ({time.time()-t:.2f}с): curl_cffi OK — HTTP {resp.status_code}"
+            f"РўРµСЃС‚ 5 ({time.time()-t:.2f}СЃ): curl_cffi OK вЂ” HTTP {resp.status_code}"
         )
     except ImportError:
-        results.append("Тест 5: curl_cffi не установлен (pip install curl-cffi)")
+        results.append("РўРµСЃС‚ 5: curl_cffi РЅРµ СѓСЃС‚Р°РЅРѕРІР»РµРЅ (pip install curl-cffi)")
     except Exception as e:
         elapsed = time.time() - t
-        results.append(f"Тест 5 ({elapsed:.2f}с): curl_cffi ERROR — {str(e)[:80]}")
+        results.append(f"РўРµСЃС‚ 5 ({elapsed:.2f}СЃ): curl_cffi ERROR вЂ” {str(e)[:80]}")
 
-    # Тест 6: curl_cffi POST к /sps/oauth/register (первый реальный шаг OAuth)
+    # РўРµСЃС‚ 6: curl_cffi POST Рє /sps/oauth/register (РїРµСЂРІС‹Р№ СЂРµР°Р»СЊРЅС‹Р№ С€Р°Рі OAuth)
     t = time.time()
     try:
         from curl_cffi.requests import AsyncSession
@@ -261,74 +265,74 @@ async def cmd_test_auth(message: Message):
                 json={"software_id": "dnevnik.mos.ru", "device_type": "android_phone"},
             )
         results.append(
-            f"Тест 6 ({time.time()-t:.2f}с): OAuth API OK — HTTP {resp.status_code} "
-            f"(curl_cffi достигает API МЭШ!)"
+            f"РўРµСЃС‚ 6 ({time.time()-t:.2f}СЃ): OAuth API OK вЂ” HTTP {resp.status_code} "
+            f"(curl_cffi РґРѕСЃС‚РёРіР°РµС‚ API РњР­РЁ!)"
         )
     except ImportError:
-        results.append("Тест 6: curl_cffi не установлен")
+        results.append("РўРµСЃС‚ 6: curl_cffi РЅРµ СѓСЃС‚Р°РЅРѕРІР»РµРЅ")
     except Exception as e:
         elapsed = time.time() - t
-        results.append(f"Тест 6 ({elapsed:.2f}с): OAuth API ERROR — {str(e)[:80]}")
+        results.append(f"РўРµСЃС‚ 6 ({elapsed:.2f}СЃ): OAuth API ERROR вЂ” {str(e)[:80]}")
 
     report = "\n".join(results)
 
-    # Динамическая расшифровка на основе реальных результатов
-    test2_ok = any("СЕТЬ РАБОТАЕТ" in r for r in results)
-    test4_timeout = any("Тест 4" in r and "TIMEOUT" in r for r in results)
-    test5_ok = any("Тест 5" in r and "OK" in r for r in results)
-    test6_ok = any("Тест 6" in r and "OK" in r for r in results)
+    # Р”РёРЅР°РјРёС‡РµСЃРєР°СЏ СЂР°СЃС€РёС„СЂРѕРІРєР° РЅР° РѕСЃРЅРѕРІРµ СЂРµР°Р»СЊРЅС‹С… СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ
+    test2_ok = any("РЎР•РўР¬ Р РђР‘РћРўРђР•Рў" in r for r in results)
+    test4_timeout = any("РўРµСЃС‚ 4" in r and "TIMEOUT" in r for r in results)
+    test5_ok = any("РўРµСЃС‚ 5" in r and "OK" in r for r in results)
+    test6_ok = any("РўРµСЃС‚ 6" in r and "OK" in r for r in results)
 
-    hints = ["\n\nРасшифровка:"]
+    hints = ["\n\nР Р°СЃС€РёС„СЂРѕРІРєР°:"]
     if test2_ok:
-        hints.append("✅ Тест 2 OK — curl_cffi работает, OAuth-шаги 1-3 проходят")
+        hints.append("вњ… РўРµСЃС‚ 2 OK вЂ” curl_cffi СЂР°Р±РѕС‚Р°РµС‚, OAuth-С€Р°РіРё 1-3 РїСЂРѕС…РѕРґСЏС‚")
     else:
-        hints.append("❌ Тест 2 FAIL — соединение с МЭШ не работает")
+        hints.append("вќЊ РўРµСЃС‚ 2 FAIL вЂ” СЃРѕРµРґРёРЅРµРЅРёРµ СЃ РњР­РЁ РЅРµ СЂР°Р±РѕС‚Р°РµС‚")
 
     if test4_timeout and test2_ok:
-        hints.append("✅ Тест 4 TIMEOUT + Тест 2 OK — JA3 обходится через curl_cffi")
+        hints.append("вњ… РўРµСЃС‚ 4 TIMEOUT + РўРµСЃС‚ 2 OK вЂ” JA3 РѕР±С…РѕРґРёС‚СЃСЏ С‡РµСЂРµР· curl_cffi")
     elif not test4_timeout:
-        hints.append("⚠️ Тест 4 OK — Python/OpenSSL не заблокирован (неожиданно)")
+        hints.append("вљ пёЏ РўРµСЃС‚ 4 OK вЂ” Python/OpenSSL РЅРµ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ (РЅРµРѕР¶РёРґР°РЅРЅРѕ)")
 
     if test6_ok:
-        hints.append("✅ Тест 6 OK — прямой POST к OAuth API работает")
+        hints.append("вњ… РўРµСЃС‚ 6 OK вЂ” РїСЂСЏРјРѕР№ POST Рє OAuth API СЂР°Р±РѕС‚Р°РµС‚")
     elif test2_ok:
-        hints.append("⚠️ Тест 6 ERROR при Тест 2 OK — возможна проблема со software_statement")
+        hints.append("вљ пёЏ РўРµСЃС‚ 6 ERROR РїСЂРё РўРµСЃС‚ 2 OK вЂ” РІРѕР·РјРѕР¶РЅР° РїСЂРѕР±Р»РµРјР° СЃРѕ software_statement")
     else:
-        hints.append("❌ Тест 6 ERROR — curl_cffi не достигает OAuth API")
+        hints.append("вќЊ РўРµСЃС‚ 6 ERROR вЂ” curl_cffi РЅРµ РґРѕСЃС‚РёРіР°РµС‚ OAuth API")
 
     if test5_ok:
-        hints.append("ℹ️ Тест 5 OK — root login.mos.ru доступен")
+        hints.append("в„№пёЏ РўРµСЃС‚ 5 OK вЂ” root login.mos.ru РґРѕСЃС‚СѓРїРµРЅ")
     elif test2_ok:
-        hints.append("ℹ️ Тест 5 ERROR при Тест 2 OK — root блокирован, но API работает (норма)")
+        hints.append("в„№пёЏ РўРµСЃС‚ 5 ERROR РїСЂРё РўРµСЃС‚ 2 OK вЂ” root Р±Р»РѕРєРёСЂРѕРІР°РЅ, РЅРѕ API СЂР°Р±РѕС‚Р°РµС‚ (РЅРѕСЂРјР°)")
     else:
-        hints.append("❌ Тест 5 ERROR — login.mos.ru недоступен даже через curl_cffi")
+        hints.append("вќЊ РўРµСЃС‚ 5 ERROR вЂ” login.mos.ru РЅРµРґРѕСЃС‚СѓРїРµРЅ РґР°Р¶Рµ С‡РµСЂРµР· curl_cffi")
 
     if test2_ok and not test6_ok:
-        hints.append("\n🔍 Вероятная причина ошибки входа: шаг 4+ OAuth (sms/bind или /sps/oauth/te)")
+        hints.append("\nрџ”Ќ Р’РµСЂРѕСЏС‚РЅР°СЏ РїСЂРёС‡РёРЅР° РѕС€РёР±РєРё РІС…РѕРґР°: С€Р°Рі 4+ OAuth (sms/bind РёР»Рё /sps/oauth/te)")
     elif not test2_ok:
-        hints.append("\n🔴 Авторизация невозможна — проверьте сетевое подключение")
+        hints.append("\nрџ”ґ РђРІС‚РѕСЂРёР·Р°С†РёСЏ РЅРµРІРѕР·РјРѕР¶РЅР° вЂ” РїСЂРѕРІРµСЂСЊС‚Рµ СЃРµС‚РµРІРѕРµ РїРѕРґРєР»СЋС‡РµРЅРёРµ")
 
     hint = "\n".join(hints)
     logger.info("Auth diagnostic:\n%s", report)
-    await message.answer(f"Результаты:\n{report}{hint}")
+    await message.answer(f"Р РµР·СѓР»СЊС‚Р°С‚С‹:\n{report}{hint}")
 
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
-    """Handle /start — role-based menu."""
+    """Handle /start вЂ” role-based menu."""
     await state.clear()
     user_id = message.from_user.id
 
-    # Проверяем, есть ли пользователь в БД
+    # РџСЂРѕРІРµСЂСЏРµРј, РµСЃС‚СЊ Р»Рё РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ РІ Р‘Р”
     if not await user_exists(user_id):
-        # Автовосстановление главного админа (мог удалиться при перерегистрации)
+        # РђРІС‚РѕРІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёРµ РіР»Р°РІРЅРѕРіРѕ Р°РґРјРёРЅР° (РјРѕРі СѓРґР°Р»РёС‚СЊСЃСЏ РїСЂРё РїРµСЂРµСЂРµРіРёСЃС‚СЂР°С†РёРё)
         if settings.ADMIN_ID and user_id == settings.ADMIN_ID:
             await set_user_access(user_id, "admin")
-            logger.info("Автовосстановление админа user_id=%d", user_id)
+            logger.info("РђРІС‚РѕРІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёРµ Р°РґРјРёРЅР° user_id=%d", user_id)
         else:
             await message.answer(
-                "❗ Доступ ограничен.\n\n"
-                "Для получения доступа обратитесь к администратору."
+                "вќ— Р”РѕСЃС‚СѓРї РѕРіСЂР°РЅРёС‡РµРЅ.\n\n"
+                "Р”Р»СЏ РїРѕР»СѓС‡РµРЅРёСЏ РґРѕСЃС‚СѓРїР° РѕР±СЂР°С‚РёС‚РµСЃСЊ Рє Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂСѓ."
             )
             return
 
@@ -337,8 +341,8 @@ async def cmd_start(message: Message, state: FSMContext):
     if role == "admin":
         await _set_user_commands(message.bot, user_id, role)
         await message.answer(
-            "👋 С возвращением, администратор!\n\n"
-            "Выберите действие:",
+            "рџ‘‹ РЎ РІРѕР·РІСЂР°С‰РµРЅРёРµРј, Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ!\n\n"
+            "Р’С‹Р±РµСЂРёС‚Рµ РґРµР№СЃС‚РІРёРµ:",
             reply_markup=full_menu_keyboard(),
         )
 
@@ -348,16 +352,16 @@ async def cmd_start(message: Message, state: FSMContext):
         has_mesh = user and user.get("mesh_login")
         if has_mesh:
             await message.answer(
-                "👋 С возвращением!\n\n"
-                "Выберите действие:",
+                "рџ‘‹ РЎ РІРѕР·РІСЂР°С‰РµРЅРёРµРј!\n\n"
+                "Р’С‹Р±РµСЂРёС‚Рµ РґРµР№СЃС‚РІРёРµ:",
                 reply_markup=full_menu_keyboard(),
             )
         else:
             await message.answer(
-                "👋 Добро пожаловать!\n\n"
-                "Для доступа к расписанию, оценкам и ДЗ\n"
-                "необходимо войти в систему МЭШ.\n\n"
-                "Введите ваш логин от dnevnik.mos.ru:"
+                "рџ‘‹ Р”РѕР±СЂРѕ РїРѕР¶Р°Р»РѕРІР°С‚СЊ!\n\n"
+                "Р”Р»СЏ РґРѕСЃС‚СѓРїР° Рє СЂР°СЃРїРёСЃР°РЅРёСЋ, РѕС†РµРЅРєР°Рј Рё Р”Р—\n"
+                "РЅРµРѕР±С…РѕРґРёРјРѕ РІРѕР№С‚Рё РІ СЃРёСЃС‚РµРјСѓ РњР­РЁ.\n\n"
+                "Р’РІРµРґРёС‚Рµ РІР°С€ Р»РѕРіРёРЅ РѕС‚ dnevnik.mos.ru:"
             )
             await state.set_state(RegistrationStates.waiting_for_mesh_login)
 
@@ -368,21 +372,21 @@ async def cmd_start(message: Message, state: FSMContext):
         has_mesh = user and user.get("mesh_login")
         if has_mesh:
             await message.answer(
-                "👋 Привет! Я Школьный помощник.\n\n"
-                "Выбери, что хочешь сделать:",
+                "рџ‘‹ РџСЂРёРІРµС‚! РЇ РЁРєРѕР»СЊРЅС‹Р№ РїРѕРјРѕС‰РЅРёРє.\n\n"
+                "Р’С‹Р±РµСЂРё, С‡С‚Рѕ С…РѕС‡РµС€СЊ СЃРґРµР»Р°С‚СЊ:",
                 reply_markup=student_menu_keyboard(),
             )
         else:
             await message.answer(
-                "👋 Привет! Я Школьный помощник.\n\n"
-                "Для доступа к расписанию и домашним заданиям\n"
-                "необходимо войти в систему МЭШ.\n\n"
-                "Введите ваш логин от dnevnik.mos.ru:"
+                "рџ‘‹ РџСЂРёРІРµС‚! РЇ РЁРєРѕР»СЊРЅС‹Р№ РїРѕРјРѕС‰РЅРёРє.\n\n"
+                "Р”Р»СЏ РґРѕСЃС‚СѓРїР° Рє СЂР°СЃРїРёСЃР°РЅРёСЋ Рё РґРѕРјР°С€РЅРёРј Р·Р°РґР°РЅРёСЏРј\n"
+                "РЅРµРѕР±С…РѕРґРёРјРѕ РІРѕР№С‚Рё РІ СЃРёСЃС‚РµРјСѓ РњР­РЁ.\n\n"
+                "Р’РІРµРґРёС‚Рµ РІР°С€ Р»РѕРіРёРЅ РѕС‚ dnevnik.mos.ru:"
             )
             await state.set_state(RegistrationStates.waiting_for_mesh_login)
 
     else:
-        await message.answer("❗ Роль не определена. Обратитесь к администратору.")
+        await message.answer("вќ— Р РѕР»СЊ РЅРµ РѕРїСЂРµРґРµР»РµРЅР°. РћР±СЂР°С‚РёС‚РµСЃСЊ Рє Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂСѓ.")
 
 
 
@@ -395,34 +399,36 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
 
     if role == "student":
         await callback.message.edit_text(
-            "👋 Выбери, что хочешь сделать:",
+            "рџ‘‹ Р’С‹Р±РµСЂРё, С‡С‚Рѕ С…РѕС‡РµС€СЊ СЃРґРµР»Р°С‚СЊ:",
             reply_markup=student_menu_keyboard(),
         )
     else:
-        await callback.message.edit_text("Главное меню:", reply_markup=full_menu_keyboard())
+        await callback.message.edit_text("Р“Р»Р°РІРЅРѕРµ РјРµРЅСЋ:", reply_markup=full_menu_keyboard())
     await callback.answer()
 
 
 @router.callback_query(F.data == "reregister")
 async def cb_reregister(callback: CallbackQuery, state: FSMContext):
-    """Перерегистрация: удалить старые данные и начать заново."""
+    """РџРµСЂРµСЂРµРіРёСЃС‚СЂР°С†РёСЏ: СѓРґР°Р»РёС‚СЊ СЃС‚Р°СЂС‹Рµ РґР°РЅРЅС‹Рµ Рё РЅР°С‡Р°С‚СЊ Р·Р°РЅРѕРІРѕ."""
     user_id = callback.from_user.id
 
-    # Сохраняем роль перед удалением
+    # РЎРѕС…СЂР°РЅСЏРµРј СЂРѕР»СЊ РїРµСЂРµРґ СѓРґР°Р»РµРЅРёРµРј
     role = await get_user_role(user_id)
 
     await delete_user(user_id)
     await state.clear()
 
-    # Восстанавливаем роль, чтобы пользователь не потерял доступ
+    # Р’РѕСЃСЃС‚Р°РЅР°РІР»РёРІР°РµРј СЂРѕР»СЊ, С‡С‚РѕР±С‹ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ РїРѕС‚РµСЂСЏР» РґРѕСЃС‚СѓРї
     if role:
         await set_user_access(user_id, role)
 
-    logger.info("Перерегистрация: МЭШ-данные удалены, роль %s сохранена, user_id=%d", role, user_id)
+    logger.info("РџРµСЂРµСЂРµРіРёСЃС‚СЂР°С†РёСЏ: РњР­РЁ-РґР°РЅРЅС‹Рµ СѓРґР°Р»РµРЅС‹, СЂРѕР»СЊ %s СЃРѕС…СЂР°РЅРµРЅР°, user_id=%d", role, user_id)
 
     await callback.message.edit_text(
-        "Старые данные удалены.\n\n"
-        "Введите ваш логин от dnevnik.mos.ru:"
+        "РЎС‚Р°СЂС‹Рµ РґР°РЅРЅС‹Рµ СѓРґР°Р»РµРЅС‹.\n\n"
+        "Р’РІРµРґРёС‚Рµ РІР°С€ Р»РѕРіРёРЅ РѕС‚ dnevnik.mos.ru:"
     )
     await state.set_state(RegistrationStates.waiting_for_mesh_login)
     await callback.answer()
+
+

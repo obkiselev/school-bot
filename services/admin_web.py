@@ -12,6 +12,7 @@ from aiogram import Bot
 
 from config import settings
 from database.crud import (
+    get_admin_broadcast_history,
     create_admin_broadcast,
     finish_admin_broadcast,
     get_admin_daily_tests,
@@ -151,6 +152,24 @@ def _render_panel_html(token: str) -> str:
     .muted {{ color: var(--muted); font-size: 13px; }}
     #result.ok {{ color: var(--ok); }}
     #result.err {{ color: var(--err); }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }}
+    th, td {{
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      padding: 8px 6px;
+    }}
+    th {{
+      color: var(--muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      font-size: 11px;
+    }}
   </style>
 </head>
 <body>
@@ -177,6 +196,23 @@ def _render_panel_html(token: str) -> str:
           <span id="result" class="muted"></span>
         </div>
       </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="label">История рассылок</div>
+      <div class="muted" style="margin:6px 0 10px">Последние 30 запусков групповой рассылки.</div>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Статус</th>
+            <th>Роли</th>
+            <th>Итог</th>
+            <th>Создано</th>
+            <th>Текст</th>
+          </tr>
+        </thead>
+        <tbody id="broadcast-history"></tbody>
+      </table>
     </div>
   </div>
   <script>
@@ -286,15 +322,44 @@ def _render_panel_html(token: str) -> str:
         if (!r.ok) throw new Error(data.error || `HTTP ${{r.status}}`);
         resultNode.className = 'ok';
         resultNode.textContent = `run #${{data.broadcast_id}}: targets=${{data.total_targets}}, sent=${{data.sent_count}}, failed=${{data.failed_count}}`;
+        loadBroadcastHistory();
       }} catch (e) {{
         resultNode.className = 'err';
         resultNode.textContent = e.message;
       }}
     }}
 
+    async function loadBroadcastHistory() {{
+      const rows = await apiGet('/admin/api/broadcast-history');
+      const node = document.getElementById('broadcast-history');
+      const esc = (v) => String(v ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+      if (!rows.length) {{
+        node.innerHTML = '<tr><td colspan=\"6\" class=\"muted\">Пока нет запусков.</td></tr>';
+        return;
+      }}
+      node.innerHTML = rows.map((r) => {{
+        const roles = esc((r.target_roles || []).join(', ') || '-');
+        const total = esc(`targets=${{r.total_targets}}, sent=${{r.sent_count}}, failed=${{r.failed_count}}`);
+        return `<tr>
+          <td>${{esc(r.id)}}</td>
+          <td>${{esc(r.status)}}</td>
+          <td>${{roles}}</td>
+          <td>${{total}}</td>
+          <td>${{esc(r.created_at || '-')}}</td>
+          <td>${{esc(r.message_preview || '-')}}</td>
+        </tr>`;
+      }}).join('');
+    }}
+
     document.getElementById('send').addEventListener('click', sendBroadcast);
     loadCards();
     loadChart();
+    loadBroadcastHistory();
   </script>
 </body>
 </html>
@@ -318,6 +383,7 @@ class AdminWebServer:
                 web.get("/admin", self.handle_index),
                 web.get("/admin/api/stats", self.handle_stats),
                 web.get("/admin/api/tests-daily", self.handle_tests_daily),
+                web.get("/admin/api/broadcast-history", self.handle_broadcast_history),
                 web.post("/admin/api/broadcast", self.handle_broadcast),
             ]
         )
@@ -366,6 +432,11 @@ class AdminWebServer:
         except ValueError:
             days = 14
         return web.json_response(await get_admin_daily_tests(days=days))
+
+    async def handle_broadcast_history(self, request: web.Request) -> web.Response:
+        if not _check_auth(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        return web.json_response(await get_admin_broadcast_history(limit=30))
 
     async def handle_broadcast(self, request: web.Request) -> web.Response:
         if not _check_auth(request):

@@ -1482,6 +1482,57 @@ async def get_admin_daily_tests(days: int = 14) -> List[Dict]:
     ]
 
 
+async def get_admin_broadcast_history(limit: int = 30) -> List[Dict]:
+    """Return latest admin broadcast runs for admin web panel."""
+    db = get_db()
+    safe_limit = max(1, min(int(limit), 200))
+    rows = await db.fetchall(
+        """
+        SELECT id,
+               initiated_by,
+               message_text,
+               target_roles,
+               total_targets,
+               sent_count,
+               failed_count,
+               status,
+               created_at,
+               finished_at
+        FROM admin_broadcasts
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (safe_limit,),
+    )
+    result: List[Dict] = []
+    for row in rows:
+        raw_roles = row[3] or "[]"
+        try:
+            roles = json.loads(raw_roles)
+            if not isinstance(roles, list):
+                roles = []
+        except Exception:
+            roles = []
+        text = (row[2] or "").strip().replace("\r", " ").replace("\n", " ")
+        if len(text) > 140:
+            text = text[:140] + "..."
+        result.append(
+            {
+                "id": row[0],
+                "initiated_by": row[1],
+                "message_preview": text,
+                "target_roles": roles,
+                "total_targets": row[4] or 0,
+                "sent_count": row[5] or 0,
+                "failed_count": row[6] or 0,
+                "status": row[7] or "unknown",
+                "created_at": row[8],
+                "finished_at": row[9],
+            }
+        )
+    return result
+
+
 async def get_broadcast_target_user_ids(roles: Optional[List[str]]) -> List[int]:
     """Get target user IDs for admin broadcast by roles."""
     db = get_db()

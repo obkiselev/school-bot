@@ -26,6 +26,7 @@ from handlers import analytics as analytics_handler
 from handlers import reminders as reminders_handler
 from handlers import import_questions as import_questions_handler
 from handlers import social as social_handler
+from handlers import reports as reports_handler
 from middlewares.access import AccessControlMiddleware
 from middlewares.throttle import ThrottleMiddleware
 from services.notification_service import init_scheduler
@@ -344,6 +345,7 @@ async def main():
     dp.include_router(reminders_handler.router)
     dp.include_router(import_questions_handler.router)
     dp.include_router(social_handler.router)
+    dp.include_router(reports_handler.router)
 
     logger.info("Bot handlers registered successfully")
 

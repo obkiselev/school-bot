@@ -1,4 +1,4 @@
-# School Bot — Единый школьный Telegram-бот (v1.6.0)
+# School Bot — Единый школьный Telegram-бот (v1.7.0)
 
 Telegram-бот для родителей и учеников, объединяющий два сервиса:
 - **Для родителей**: расписание, оценки, домашние задания через МЭШ (Московская электронная школа)
@@ -96,6 +96,8 @@ ADMIN_ID=123456789
 
 # Admin web panel (v1.6.0)
 ADMIN_WEB_ENABLED=true
+# Use 127.0.0.1 for secure access via SSH tunnel.
+# Use 0.0.0.0 only if you intentionally expose the panel outside.
 ADMIN_WEB_HOST=127.0.0.1
 ADMIN_WEB_PORT=8088
 ADMIN_WEB_TOKEN=change_me_strong_secret
@@ -164,6 +166,7 @@ python bot.py
 | `/settings` | Настройки уведомлений |
 | `/remind` | Личные ежедневные напоминания |
 | `/profile` | Мой профиль |
+| `/report` | PDF-отчеты (расписание/оценки) |
 | `/help` | Справка |
 
 Примечание по `/health`: если `bridge` доступен, недоступный `direct` (`localhost:1234`) показывается как ожидаемый резервный путь, а не как критическая ошибка.
@@ -319,9 +322,31 @@ python bot.py
 - Групповые рассылки от админа из веб-панели с выбором ролей и dry-run.
 - Логирование рассылок в БД (`admin_broadcasts`, `admin_broadcast_recipients`).
 
-### Ближайший план: v1.7.0
+### v1.7.0
 
-- Экспорт оценок/расписания в PDF.
+- Добавлен `/report`: экспорт PDF-документов по расписанию (today/tomorrow/week).
+- Для admin/parent в `/report` добавлен экспорт PDF по оценкам (today/week/month).
+- В админ-панели добавлена история запусков групповых рассылок (последние 30 запусков).
+
+#### Admin Web access (VPS)
+
+- Correct URL always includes token and `/admin` path:
+  - `http://127.0.0.1:8088/admin?token=<ADMIN_WEB_TOKEN>`
+  - `http://<server-ip>:8088/admin?token=<ADMIN_WEB_TOKEN>`
+- If `ADMIN_WEB_HOST=127.0.0.1`, open panel through SSH tunnel (recommended):
+
+```powershell
+$key="$env:USERPROFILE\.ssh\id_ed25519_rag"
+ssh -L 8088:127.0.0.1:8088 -i $key -p 4422 school_bot@45.152.113.91
+```
+
+- Then open in browser:
+  - `http://127.0.0.1:8088/admin?token=<ADMIN_WEB_TOKEN>`
+- If you open by external IP without tunnel, `ADMIN_WEB_HOST` must be `0.0.0.0` and firewall must allow port `8088`.
+
+### Ближайший план: v1.8.0
+
+- Экспорт и фильтрация отчетов в админ-панели (CSV/PDF).
 
 ### Известные проблемы
 
