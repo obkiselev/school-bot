@@ -157,6 +157,10 @@ class Settings(BaseSettings):
         default=True,
         description="Generate template-based quiz when LLM is unavailable"
     )
+    QUIZ_TEMPLATE_FALLBACK_ENABLED: bool = Field(
+        default=True,
+        description="Backward-compatible alias for template fallback toggle in tests"
+    )
     LLM_MODEL: str = Field(
         default="qwen2.5-7b-instruct",
         description="LLM model name"
