@@ -214,6 +214,20 @@ async def _run_migrations(conn: aiosqlite.Connection):
         await conn.commit()
 
     # Авто-создание главного админа (ADMIN_ID из .env)
+    # Migration 010: admin web panel and broadcast logs
+    migration_010 = migrations_dir / "010_admin_panel.sql"
+    if migration_010.exists():
+        with open(migration_010, "r", encoding="utf-8") as f:
+            sql = f.read()
+        for statement in sql.split(";"):
+            statement = statement.strip()
+            if statement:
+                try:
+                    await conn.execute(statement)
+                except Exception as e:
+                    logger.debug("Migration 010 statement skipped: %s", e)
+        await conn.commit()
+
     await _ensure_admin(conn)
 
 

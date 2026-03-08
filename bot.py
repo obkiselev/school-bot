@@ -29,6 +29,7 @@ from handlers import social as social_handler
 from middlewares.access import AccessControlMiddleware
 from middlewares.throttle import ThrottleMiddleware
 from services.notification_service import init_scheduler
+from services.admin_web import start_admin_web
 
 
 # Configure logging — stdout + файл (data/logs/bot.log)
@@ -366,6 +367,9 @@ async def main():
     from services.notification_service import check_and_send_missed
     await check_and_send_missed(bot)
 
+    # Start admin web panel (optional)
+    admin_web = await start_admin_web(bot)
+
     # Start polling
     try:
         logger.info("Starting bot polling...")
@@ -378,6 +382,8 @@ async def main():
         raise
     finally:
         # Cleanup
+        if admin_web:
+            await admin_web.stop()
         scheduler.shutdown(wait=False)
         logger.info("APScheduler stopped")
         await bot.session.close()

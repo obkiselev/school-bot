@@ -345,6 +345,22 @@ class Settings(BaseSettings):
         default=None,
         description="Primary admin Telegram ID"
     )
+    ADMIN_WEB_ENABLED: bool = Field(
+        default=False,
+        description="Enable embedded admin web panel"
+    )
+    ADMIN_WEB_HOST: str = Field(
+        default="127.0.0.1",
+        description="Admin web host bind address"
+    )
+    ADMIN_WEB_PORT: int = Field(
+        default=8088,
+        description="Admin web port"
+    )
+    ADMIN_WEB_TOKEN: Optional[str] = Field(
+        default=None,
+        description="Bearer/query token for admin web panel"
+    )
 
     # Rate Limiting
     API_MAX_CALLS: int = Field(

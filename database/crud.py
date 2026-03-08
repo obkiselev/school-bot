@@ -1400,3 +1400,157 @@ async def get_shared_result(share_token: str) -> Optional[Dict]:
         "finished_at": row[10],
         "sender_name": row[11],
     }
+
+
+# ============================================================================
+# ADMIN WEB PANEL (v1.6.0)
+# ============================================================================
+
+_ALLOWED_BROADCAST_ROLES = ("admin", "parent", "student")
+
+
+def normalize_broadcast_roles(roles: Optional[List[str]]) -> List[str]:
+    """Normalize and validate broadcast target roles."""
+    if not roles:
+        return ["student", "parent"]
+    normalized: List[str] = []
+    for role in roles:
+        value = (role or "").strip().lower()
+        if value in _ALLOWED_BROADCAST_ROLES and value not in normalized:
+            normalized.append(value)
+    return normalized or ["student", "parent"]
+
+
+async def get_admin_dashboard_stats() -> Dict:
+    """Return aggregate stats for admin web dashboard."""
+    db = get_db()
+
+    users_total_row = await db.fetchone("SELECT COUNT(*) FROM users")
+    users_blocked_row = await db.fetchone("SELECT COUNT(*) FROM users WHERE is_blocked = 1")
+    users_students_row = await db.fetchone("SELECT COUNT(*) FROM users WHERE role = 'student'")
+    users_parents_row = await db.fetchone("SELECT COUNT(*) FROM users WHERE role = 'parent'")
+    users_admins_row = await db.fetchone("SELECT COUNT(*) FROM users WHERE role = 'admin'")
+    tests_total_row = await db.fetchone("SELECT COUNT(*) FROM test_sessions")
+    tests_7d_row = await db.fetchone(
+        "SELECT COUNT(*) FROM test_sessions WHERE datetime(finished_at) >= datetime('now', '-7 day')"
+    )
+    avg_score_30d_row = await db.fetchone(
+        "SELECT ROUND(AVG(score_percent), 1) FROM test_sessions "
+        "WHERE datetime(finished_at) >= datetime('now', '-30 day')"
+    )
+    active_7d_row = await db.fetchone(
+        "SELECT COUNT(DISTINCT user_id) FROM activity_log "
+        "WHERE user_id IS NOT NULL AND datetime(timestamp) >= datetime('now', '-7 day')"
+    )
+
+    return {
+        "users_total": users_total_row[0] or 0,
+        "users_blocked": users_blocked_row[0] or 0,
+        "users_students": users_students_row[0] or 0,
+        "users_parents": users_parents_row[0] or 0,
+        "users_admins": users_admins_row[0] or 0,
+        "tests_total": tests_total_row[0] or 0,
+        "tests_7d": tests_7d_row[0] or 0,
+        "avg_score_30d": avg_score_30d_row[0] or 0.0,
+        "active_users_7d": active_7d_row[0] or 0,
+    }
+
+
+async def get_admin_daily_tests(days: int = 14) -> List[Dict]:
+    """Return daily test counts and average scores for charting."""
+    db = get_db()
+    days = max(1, min(days, 90))
+    rows = await db.fetchall(
+        """
+        SELECT date(finished_at) AS day,
+               COUNT(*) AS tests_count,
+               ROUND(AVG(score_percent), 1) AS avg_score
+        FROM test_sessions
+        WHERE datetime(finished_at) >= datetime('now', ?)
+        GROUP BY date(finished_at)
+        ORDER BY day ASC
+        """,
+        (f"-{days} day",),
+    )
+    return [
+        {
+            "day": row[0],
+            "tests_count": row[1] or 0,
+            "avg_score": row[2] or 0.0,
+        }
+        for row in rows
+    ]
+
+
+async def get_broadcast_target_user_ids(roles: Optional[List[str]]) -> List[int]:
+    """Get target user IDs for admin broadcast by roles."""
+    db = get_db()
+    normalized = normalize_broadcast_roles(roles)
+    placeholders = ",".join("?" for _ in normalized)
+    rows = await db.fetchall(
+        f"SELECT user_id FROM users WHERE is_blocked = 0 AND role IN ({placeholders}) ORDER BY user_id",
+        tuple(normalized),
+    )
+    return [row[0] for row in rows]
+
+
+async def create_admin_broadcast(
+    initiated_by: Optional[int],
+    message_text: str,
+    roles: List[str],
+    total_targets: int,
+    status: str = "running",
+) -> int:
+    """Create broadcast run and return run id."""
+    db = get_db()
+    conn = await db.connect()
+    cursor = await conn.execute(
+        """
+        INSERT INTO admin_broadcasts
+            (initiated_by, message_text, target_roles, total_targets, status)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (initiated_by, message_text, json.dumps(roles, ensure_ascii=False), total_targets, status),
+    )
+    await conn.commit()
+    return int(cursor.lastrowid)
+
+
+async def log_admin_broadcast_recipient(
+    broadcast_id: int,
+    user_id: int,
+    status: str,
+    error_text: Optional[str] = None,
+) -> None:
+    """Save delivery status for one recipient."""
+    db = get_db()
+    delivered_at = datetime.utcnow().isoformat() if status == "sent" else None
+    await db.execute(
+        """
+        INSERT INTO admin_broadcast_recipients
+            (broadcast_id, user_id, status, error_text, delivered_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (broadcast_id, user_id, status, error_text, delivered_at),
+    )
+
+
+async def finish_admin_broadcast(
+    broadcast_id: int,
+    sent_count: int,
+    failed_count: int,
+    status: str = "completed",
+) -> None:
+    """Finalize broadcast run counters/status."""
+    db = get_db()
+    await db.execute(
+        """
+        UPDATE admin_broadcasts
+        SET sent_count = ?,
+            failed_count = ?,
+            status = ?,
+            finished_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (sent_count, failed_count, status, broadcast_id),
+    )
