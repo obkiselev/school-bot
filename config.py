@@ -35,12 +35,16 @@ class Settings(BaseSettings):
         default="19:00",
         description="Default time for homework notifications (HH:MM)"
     )
+    REMINDER_NOTIFICATION_TIME: str = Field(
+        default="20:00",
+        description="Default time for planner reminders (HH:MM)"
+    )
     TIMEZONE: str = Field(
         default="Europe/Moscow",
         description="Timezone for notifications"
     )
 
-    @field_validator("GRADES_NOTIFICATION_TIME", "HOMEWORK_NOTIFICATION_TIME")
+    @field_validator("GRADES_NOTIFICATION_TIME", "HOMEWORK_NOTIFICATION_TIME", "REMINDER_NOTIFICATION_TIME")
     @classmethod
     def validate_time_format(cls, v: str) -> str:
         if not re.match(r"^\d{1,2}:\d{2}$", v):
