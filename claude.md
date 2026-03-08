@@ -96,6 +96,19 @@
 - **Katana17**: `C:\Users\Олег\.ssh\id_ed25519_rag`
 - Для деплоя и SSH всегда использовать путь ключа текущей машины.
 
+### Машино-зависимые профили (deploy/git)
+
+- **KATANA 17 (текущий рабочий профиль):**
+  - SSH key: `C:\Users\Олег\.ssh\id_ed25519_rag`
+  - Проверенный root репозитория: `E:\claude`
+  - Deploy script: `E:\claude\school_bot\_repo\work\deploy-school-bot.ps1`
+  - Известный нюанс: в скрипте возможен сбой `scp` из-за порта (`-p` vs `-P`), в таком случае сразу использовать ручной deploy по `scp/ssh`.
+
+- **Lenovo (альтернативный профиль):**
+  - SSH key: `C:\Users\OKiselev.KOMPUTER\.ssh\id_ed25519_rag`
+  - Базовая логика git/deploy та же (commit/tag/push/deploy без подтверждений).
+  - Если отличается путь репозитория/инструментов (`ssh/scp/tar`), определить автоматически через `Get-Location`, `git rev-parse --show-toplevel`, `Get-Command ssh,scp,tar` и продолжить deploy без запроса пользователю.
+
 ### Быстрый деплой (из локальной машины)
 
 ```bash

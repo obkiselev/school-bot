@@ -36,6 +36,19 @@ $SSH "sudo systemctl restart school_bot"
 $SSH "sudo systemctl status school_bot --no-pager -l"
 ```
 
+## Machine Profiles
+
+- KATANA 17:
+  - SSH key: `C:\Users\Олег\.ssh\id_ed25519_rag`
+  - Typical repo root: `E:\claude`
+  - Deploy script path: `E:\claude\school_bot\_repo\work\deploy-school-bot.ps1`
+  - Known issue: deploy script may fail on `scp` port handling; fallback to manual `scp -P 4422` + remote `ssh` commands.
+
+- Lenovo:
+  - SSH key: `C:\Users\OKiselev.KOMPUTER\.ssh\id_ed25519_rag`
+  - Same release/deploy flow, but local paths can differ.
+  - Before deploy, auto-detect local specifics (`git rev-parse --show-toplevel`, `Get-Command ssh,scp,tar`) and continue without asking user.
+
 ## Notes
 - Keep secrets only in `.env` (never commit).
 - If `.py` changed, deploy + restart service before closing task.
