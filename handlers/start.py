@@ -43,6 +43,7 @@ async def _set_user_commands(bot, user_id: int, role: str):
             BotCommand(command="allow", description="Добавить пользователя"),
             BotCommand(command="block", description="Заблокировать пользователя"),
             BotCommand(command="users", description="Список пользователей"),
+            BotCommand(command="health", description="Проверка состояния"),
             BotCommand(command="help", description="Справка"),
         ]
     elif role == "parent":
@@ -114,6 +115,7 @@ async def cmd_help(message: Message):
         lines.append("/allow &lt;id&gt; [student|parent|admin] — Добавить пользователя")
         lines.append("/block &lt;id&gt; — Заблокировать пользователя")
         lines.append("/users — Список пользователей")
+        lines.append("/health — Проверка состояния бота")
 
     lines.append("\n<i>Используйте кнопки меню для удобной навигации.</i>")
 

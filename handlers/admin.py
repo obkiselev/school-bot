@@ -6,6 +6,7 @@ from aiogram.types import Message, InlineKeyboardMarkup
 from config import settings
 from database.crud import is_user_allowed, set_user_access, block_user, get_all_users_list
 from keyboards.main_menu import home_button
+from services.health_check import collect_health_status, format_health_message
 
 router = Router()
 
@@ -120,3 +121,14 @@ async def cmd_users(message: Message):
         lines.append(f"• {name} (ID: {u['user_id']}) — {role_label}, {status}")
 
     await message.answer("\n".join(lines), reply_markup=_home_kb)
+
+
+@router.message(Command("health"))
+async def cmd_health(message: Message):
+    """Bot runtime health report: DB + LLM endpoints."""
+    if not await _check_admin(message):
+        return
+
+    status = await collect_health_status()
+    text = format_health_message(status)
+    await message.answer(text, reply_markup=_home_kb)

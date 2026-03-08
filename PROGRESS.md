@@ -1,6 +1,6 @@
 # School Bot — Прогресс разработки
 
-## Текущая версия: 1.2.2
+## Текущая версия: 1.3.0
 
 ## Статус: LLM-мост
 
@@ -142,6 +142,25 @@
 ---
 
 ## Changelog
+
+### v1.3.0 — Стабильный релиз (этап): Health + CI
+
+**Мониторинг (`services/health_check.py`, `handlers/admin.py`):**
+- Добавлен админский `/health` с проверкой:
+  - доступности БД (`SELECT 1`)
+  - доступности LLM-targets (bridge/direct) через `/models`
+- В сообщении отображается детальный статус по каждому target
+
+**Интеграция в команды (`handlers/start.py`, `README.md`):**
+- `/health` добавлен в меню команд admin
+- `/health` добавлен в `/help` для admin
+- Обновлена таблица команд в README
+
+**CI/CD (`.github/workflows/ci.yml`):**
+- Добавлен GitHub Actions workflow:
+  - запуск на `push`/`pull_request` в `main`
+  - установка Python 3.11 и зависимостей
+  - прогон `pytest tests -q`
 
 ### v1.2.2 — Явная диагностика режима генерации тестов
 
