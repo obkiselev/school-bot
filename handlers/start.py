@@ -106,7 +106,7 @@ async def cmd_help(message: Message):
         "/dz — Домашние задания",
         "/test — Пройти тест по языку",
         "/social — Соревнования и соц-функции",
-        "/share <token> — Открыть shared-результат",
+        "/share &lt;token&gt; — Открыть shared-результат",
         "/settings — Настройки уведомлений",
         "/remind — Личные ежедневные напоминания",
         "/profile — Мой профиль",

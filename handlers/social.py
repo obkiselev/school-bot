@@ -57,6 +57,46 @@ def _format_shared_result_text(data: dict) -> str:
     )
 
 
+async def _build_admin_social_report() -> str:
+    """Build combined admin report for social statistics."""
+    leaders = await get_xp_leaderboard(limit=10)
+    start, end = _week_bounds(date.today())
+    weekly = await get_weekly_tests_leaderboard(start.isoformat(), end.isoformat(), limit=10)
+
+    lines = ["📊 Social Admin Report\n"]
+
+    lines.append("🏆 Лидеры XP:")
+    if not leaders:
+        lines.append("— данных пока нет")
+    else:
+        for idx, item in enumerate(leaders, start=1):
+            lines.append(
+                f"{idx}. {item['display_name']} — {item['xp_total']} XP "
+                f"(ур. {item['level']}, серия {item['current_streak']} дн.)"
+            )
+
+    lines.append("")
+    lines.append(f"⚔️ Неделя {start.strftime('%d.%m')}–{end.strftime('%d.%m')}:")
+    if not weekly:
+        lines.append("— данных пока нет")
+    else:
+        for idx, item in enumerate(weekly, start=1):
+            lines.append(
+                f"{idx}. {item['display_name']} — {item['tests_count']} тест(ов), "
+                f"ср. {item['avg_score']}%"
+            )
+
+    lines.append("")
+    lines.append("🔥 Регулярность (топ серий):")
+    if not leaders:
+        lines.append("— данных пока нет")
+    else:
+        for idx, item in enumerate(leaders[:5], start=1):
+            lines.append(f"{idx}. {item['display_name']} — серия {item['current_streak']} дн.")
+
+    return "\n".join(lines)
+
+
 @router.message(Command("social"))
 async def cmd_social(message: Message, state: FSMContext):
     """Open social hub."""
@@ -67,6 +107,18 @@ async def cmd_social(message: Message, state: FSMContext):
         "🏆 Соревнования и социальные функции\n\nВыбери раздел:",
         reply_markup=social_menu_keyboard(),
     )
+
+
+@router.message(Command("social_admin"))
+async def cmd_social_admin(message: Message):
+    """Admin overview for social features."""
+    role = await get_user_role(message.from_user.id)
+    if role != "admin":
+        await message.answer("Команда доступна только администратору.")
+        return
+
+    report = await _build_admin_social_report()
+    await message.answer(report)
 
 
 @router.message(Command("share"))
