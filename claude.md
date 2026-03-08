@@ -15,7 +15,7 @@
 - **БД**: SQLite через aiosqlite
 - **Конфигурация**: pydantic-settings + .env
 - **Шифрование**: cryptography (Fernet)
-- **LLM**: LM Studio (OpenAI-совместимый API, localhost:1234)
+- **LLM**: OpenAI-совместимый endpoint (bridge -> direct fallback), по умолчанию LM Studio
 
 ## Ролевая система
 
@@ -116,10 +116,21 @@ $SSH "sudo systemctl restart school_bot"
 $SSH "sudo systemctl status school_bot"
 ```
 
+### Если `sudo systemctl restart` недоступен
+
+На некоторых серверах у `school_bot` нет `NOPASSWD` для `sudo`. Тогда использовать эквивалентный перезапуск через systemd autorestart:
+
+```bash
+$SSH 'pid=$(systemctl show -p MainPID --value school_bot); kill -TERM "$pid"; sleep 3; systemctl --no-pager --full status school_bot'
+```
+
+Проверить, что сервис поднялся с новым PID и статусом `active (running)`.
+
 ### Особенности серверной .env
 
 - SSH-прокси отключен (бот на том же сервере, что и туннель)
-- LLM Studio недоступен на сервере (квизы не работают без локального LLM)
+- Для стабильной работы квизов на VPS используйте `LLM_BRIDGE_URL` + `LLM_API_KEY`; при недоступности endpoint включается шаблонный fallback
+- Если в серверном `.env` указан только `LLM_BASE_URL=http://localhost:1234/v1`, а LM Studio запущен не на этом VPS, тесты будут в `fallback` (это ожидаемо)
 
 ## Важные детали
 
