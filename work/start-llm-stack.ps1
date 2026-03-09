@@ -48,10 +48,10 @@ if (-not (Test-Endpoint -Url $lmModelsUrl)) {
 if (-not (Test-Endpoint -Url $bridgeModelsUrl -Token $BridgeToken)) {
     Write-Host "Starting local llm_bridge in a new window..."
     $bridgeCmd = @(
-        "$env:LLM_BRIDGE_TOKEN='$BridgeToken'",
-        "$env:LLM_UPSTREAM_BASE_URL='$UpstreamBaseUrl'",
-        "$env:LLM_BRIDGE_HOST='$BridgeHost'",
-        "$env:LLM_BRIDGE_PORT='$BridgePort'",
+        "`$env:LLM_BRIDGE_TOKEN='$BridgeToken'",
+        "`$env:LLM_UPSTREAM_BASE_URL='$UpstreamBaseUrl'",
+        "`$env:LLM_BRIDGE_HOST='$BridgeHost'",
+        "`$env:LLM_BRIDGE_PORT='$BridgePort'",
         "Set-Location '$repoDir'",
         "python -m llm_bridge.server"
     ) -join "; "
