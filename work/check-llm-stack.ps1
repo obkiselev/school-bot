@@ -33,7 +33,7 @@ function Test-Endpoint {
     }
 
     try {
-        $resp = Invoke-WebRequest -Uri $Url -Method Get -Headers $headers -TimeoutSec 10 -ErrorAction Stop
+        $resp = Invoke-WebRequest -Uri $Url -Method Get -Headers $headers -TimeoutSec 10 -UseBasicParsing -ErrorAction Stop
         [PSCustomObject]@{
             Name = $Name
             Ok = $true
@@ -70,7 +70,7 @@ function Resolve-SshExe {
 function Test-Server {
     param(
         [string]$SshExe,
-        [string]$Host,
+        [string]$ServerHost,
         [int]$Port,
         [string]$User,
         [string]$Key,
@@ -87,7 +87,7 @@ function Test-Server {
         }
     }
 
-    $remote = "$User@$Host"
+    $remote = "$User@$ServerHost"
     $authHeader = if ($Token) { "-H 'Authorization: Bearer $Token'" } else { "" }
     $cmd = @(
         "set -e",
@@ -127,7 +127,7 @@ if ($CheckServer) {
     $sshExe = Resolve-SshExe
     $results += Test-Server `
         -SshExe $sshExe `
-        -Host $ServerHost `
+        -ServerHost $ServerHost `
         -Port $ServerPort `
         -User $ServerUser `
         -Key $KeyPath `

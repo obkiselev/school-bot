@@ -19,7 +19,7 @@ function Test-Endpoint {
     }
 
     try {
-        $resp = Invoke-WebRequest -Uri $Url -Method Get -Headers $headers -TimeoutSec 3 -ErrorAction Stop
+        $resp = Invoke-WebRequest -Uri $Url -Method Get -Headers $headers -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
         return ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 300)
     } catch {
         return $false
