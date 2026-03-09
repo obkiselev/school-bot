@@ -131,6 +131,8 @@ tar -czf $ArchivePath `
     --exclude=venv `
     --exclude=data `
     --exclude=.git `
+    --exclude=.env `
+    --exclude=.env.* `
     --exclude=__pycache__ `
     -C $resolvedSourceDir .
 
