@@ -921,3 +921,37 @@
 - Added tests:
   - `tests/test_prompts.py`
   - extended `tests/test_quiz_expansion.py` for no-repeat and subject-pool checks
+
+---
+HISTORY UPDATE (2026-03-09)
+Current stable version: v1.7.2
+
+v1.7.1
+- Fixed fallback diagnostics and mode visibility.
+- Fixed fallback question pools:
+  - English pool expanded to prevent repeats in 10-question sessions.
+  - Mathematics/History/Biology pools separated to prevent subject mixing.
+- Improved subject-specific prompt isolation for school subjects.
+- Added LLM stack diagnostics and one-click launch tools:
+  - work/check-llm-stack.ps1
+  - work/start-llm-stack.ps1
+  - work/Start-LlmStack.bat
+- Fixed launcher script issues:
+  - PowerShell Host variable conflict removed.
+  - Invoke-WebRequest script parsing prompt suppressed.
+  - Environment variable assignment handling fixed.
+
+v1.7.2
+- Fixed deploy script to preserve server environment files:
+  - Excludes .env and .env.* during sync.
+- Confirmed production bridge+tunnel runtime path on server:
+  - LLM_BRIDGE_URL=http://127.0.0.1:12340/v1
+  - LLM API key configured on server.
+- Verified tunnel endpoint health from VPS side (HTTP 200).
+
+Quick admin web access (secure)
+- Keep ADMIN_WEB_HOST=127.0.0.1 on server.
+- Open SSH tunnel:
+  ssh -L 8088:127.0.0.1:8088 -i ~/.ssh/id_ed25519_rag -p 4422 school_bot@45.152.113.91
+- Open in browser:
+  http://127.0.0.1:8088/admin?token=<ADMIN_WEB_TOKEN>

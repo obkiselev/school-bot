@@ -35,22 +35,34 @@ _MONTH_NAMES = [
 # Лимиты
 _MAX_MESSAGE_LEN = 3800
 _MAX_ASSIGNMENT_LEN = 500
+_DEFAULT_DZ_PERIOD = "tomorrow"
 
 
 # ============================================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ============================================================================
 
+def _next_school_day(base: date) -> date:
+    """Возвращает следующий учебный день для 5-дневки."""
+    wd = base.weekday()  # Mon=0 ... Sun=6
+    if wd == 4:  # Friday -> Monday
+        return base + timedelta(days=3)
+    if wd == 5:  # Saturday -> Monday
+        return base + timedelta(days=2)
+    return base + timedelta(days=1)
+
+
 def _get_period_dates(period: str) -> Tuple[date, date]:
     """Возвращает (from_date, to_date) для указанного периода (ДЗ смотрят вперёд)."""
     today = date.today()
     if period == "tomorrow":
-        tomorrow = today + timedelta(days=1)
-        return (tomorrow, tomorrow)
+        target = _next_school_day(today)
+        return (target, target)
     elif period == "week":
         return (today, today + timedelta(days=6))
-    else:  # today
-        return (today, today)
+    else:  # default
+        target = _next_school_day(today)
+        return (target, target)
 
 
 def _get_period_label(period: str) -> str:
@@ -60,7 +72,7 @@ def _get_period_label(period: str) -> str:
         "tomorrow": "на завтра",
         "week": "на неделю",
     }
-    return labels.get(period, "на сегодня")
+    return labels.get(period, "на завтра")
 
 
 def _format_day_header(day_date: date) -> str:
@@ -377,7 +389,7 @@ async def cmd_dz(message: Message):
         )
         return
 
-    # Один ребёнок — сразу показать ДЗ на сегодня
+    # Один ребёнок — сразу показать ДЗ на завтра
     child = children[0]
     student_id = child["student_id"]
 
@@ -393,7 +405,7 @@ async def cmd_dz(message: Message):
 
     try:
         text, keyboard = await _get_homework_text(
-            student_id, "today", token,
+            student_id, _DEFAULT_DZ_PERIOD, token,
             profile_id=profile_id,
         )
         await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
@@ -403,7 +415,7 @@ async def cmd_dz(message: Message):
             await invalidate_token(user_id)
             token = await ensure_token(user_id)
             text, keyboard = await _get_homework_text(
-                student_id, "today", token,
+                student_id, _DEFAULT_DZ_PERIOD, token,
                 profile_id=profile_id,
             )
             await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
@@ -415,7 +427,7 @@ async def cmd_dz(message: Message):
             )
     except MeshAPIError as e:
         logger.error("Ошибка API МЭШ для user_id=%d: %s", user_id, e)
-        retry_keyboard = _get_retry_keyboard(student_id, "today")
+        retry_keyboard = _get_retry_keyboard(student_id, _DEFAULT_DZ_PERIOD)
         await message.answer(
             "\u26a0\ufe0f Сервис МЭШ временно недоступен, попробуйте позже",
             reply_markup=retry_keyboard
@@ -464,10 +476,10 @@ async def cb_menu_dz(callback: CallbackQuery):
         )
         return
 
-    # Один ребёнок — сразу ДЗ на сегодня
+    # Один ребёнок — сразу ДЗ на завтра
     child = children[0]
     student_id = child["student_id"]
-    await _handle_homework_request(callback, student_id, "today")
+    await _handle_homework_request(callback, student_id, _DEFAULT_DZ_PERIOD)
 
 
 # ============================================================================
@@ -476,7 +488,7 @@ async def cb_menu_dz(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("dz:child:"))
 async def cb_select_child(callback: CallbackQuery):
-    """Обработчик выбора ребёнка — показать ДЗ на сегодня."""
+    """Обработчик выбора ребёнка — показать ДЗ на завтра."""
     await callback.answer()
 
     parsed = _parse_callback_data(callback.data)
@@ -485,7 +497,7 @@ async def cb_select_child(callback: CallbackQuery):
         return
 
     _, student_id, _ = parsed
-    await _handle_homework_request(callback, student_id, "today")
+    await _handle_homework_request(callback, student_id, _DEFAULT_DZ_PERIOD)
 
 
 @router.callback_query(F.data.startswith("dz:period:"))

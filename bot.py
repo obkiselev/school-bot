@@ -360,7 +360,7 @@ async def main():
     # Инициализация и запуск планировщика уведомлений
     scheduler = init_scheduler(bot)
     scheduler.start()
-    logger.info("APScheduler started: grades at %s, homework at %s (%s)",
+    logger.info("APScheduler started: grades at %s, homework interval (student after last lesson +30m), base time %s (%s)",
                 settings.GRADES_NOTIFICATION_TIME,
                 settings.HOMEWORK_NOTIFICATION_TIME,
                 settings.TIMEZONE)

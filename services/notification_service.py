@@ -5,7 +5,7 @@ import logging
 from dataclasses import dataclass
 from collections import defaultdict
 from datetime import date, timedelta
-from datetime import datetime
+from datetime import datetime, time as dt_time
 from typing import Optional, Literal
 
 from aiogram import Bot
@@ -71,6 +71,9 @@ _outage_state = {
     "homework": {"consecutive": 0, "last_alert_at": None},
 }
 
+_HOMEWORK_CHECK_INTERVAL_MIN = 10
+_HOMEWORK_SEND_DELAY_MIN = 30
+
 _CONTROL_LESSON_KEYWORDS = (
     "контроль",
     "провероч",
@@ -80,6 +83,16 @@ _CONTROL_LESSON_KEYWORDS = (
     "экзамен",
     "зачет",
 )
+
+
+def _next_school_day(base: date) -> date:
+    """Возвращает следующий учебный день для 5-дневки."""
+    wd = base.weekday()  # Mon=0 ... Sun=6
+    if wd == 4:  # Friday -> Monday
+        return base + timedelta(days=3)
+    if wd == 5:  # Saturday -> Monday
+        return base + timedelta(days=2)
+    return base + timedelta(days=1)
 
 def init_scheduler(bot: Bot) -> AsyncIOScheduler:
     """Создать и настроить планировщик уведомлений."""
@@ -91,7 +104,6 @@ def init_scheduler(bot: Bot) -> AsyncIOScheduler:
 
     # Парсим время из настроек
     grades_h, grades_m = settings.GRADES_NOTIFICATION_TIME.split(":")
-    hw_h, hw_m = settings.HOMEWORK_NOTIFICATION_TIME.split(":")
 
     # Оценки — ежедневно
     scheduler.add_job(
@@ -103,13 +115,14 @@ def init_scheduler(bot: Bot) -> AsyncIOScheduler:
         coalesce=True,
     )
 
-    # ДЗ — ежедневно
+    # ДЗ — периодическая проверка; фактическая отправка для student
+    # открывается через 30 минут после окончания последнего урока.
     scheduler.add_job(
         _send_homework_notifications,
-        CronTrigger(hour=int(hw_h), minute=int(hw_m), timezone=tz),
+        IntervalTrigger(minutes=_HOMEWORK_CHECK_INTERVAL_MIN, timezone=tz),
         id="daily_homework",
         replace_existing=True,
-        misfire_grace_time=3600,
+        misfire_grace_time=300,
         coalesce=True,
     )
 
@@ -375,6 +388,76 @@ async def _send_homework_notifications():
     await save_notification_run("homework", date.today())
 
 
+def _parse_time_hhmm(value: Optional[str]) -> Optional[dt_time]:
+    """Парсит HH:MM в time, иначе None."""
+    if not value:
+        return None
+    try:
+        hh, mm = value.strip().split(":")
+        return dt_time(hour=int(hh), minute=int(mm))
+    except Exception:
+        return None
+
+
+def _is_after_lesson_window(now_local: datetime, lesson_end: dt_time, delay_minutes: int) -> bool:
+    """Проверяет, прошло ли delay_minutes после времени окончания урока."""
+    send_after = now_local.replace(
+        hour=lesson_end.hour,
+        minute=lesson_end.minute,
+        second=0,
+        microsecond=0,
+    ) + timedelta(minutes=delay_minutes)
+    return now_local >= send_after
+
+
+async def _is_student_homework_window_open(
+    *,
+    student_id: int,
+    token: str,
+    profile_id: int,
+    now_local: datetime,
+) -> tuple[bool, int, int]:
+    """
+    Для student: отправляем ДЗ только после последнего урока + 30 минут.
+    Возвращает: (ok_to_send, api_calls, api_errors).
+    """
+    api_calls = 0
+    api_errors = 0
+
+    client = MeshClient()
+    try:
+        api_calls += 1
+        lessons = await client.get_schedule(
+            student_id=student_id,
+            date_str=now_local.date().isoformat(),
+            token=token,
+            profile_id=profile_id,
+        )
+    except (AuthenticationError, MeshAPIError) as e:
+        api_errors += 1
+        logger.warning(
+            "ДЗ window: ошибка расписания для student_id=%d: %s",
+            student_id, e
+        )
+        return False, api_calls, api_errors
+    finally:
+        await client.close()
+
+    lesson_ends: list[dt_time] = []
+    for lesson in lessons or []:
+        parsed = _parse_time_hhmm(getattr(lesson, "time_end", None))
+        if parsed:
+            lesson_ends.append(parsed)
+
+    if lesson_ends:
+        last_end = max(lesson_ends)
+        return _is_after_lesson_window(now_local, last_end, _HOMEWORK_SEND_DELAY_MIN), api_calls, api_errors
+
+    # Если уроков нет, используем стандартный порог времени из настроек.
+    fallback_time = _parse_time_hhmm(getattr(settings, "HOMEWORK_NOTIFICATION_TIME", "19:00")) or dt_time(19, 0)
+    return now_local.time() >= fallback_time, api_calls, api_errors
+
+
 async def _process_homework_for_user(user_id: int, subs: list) -> ProcessResult:
     """Обработать уведомления о ДЗ для одного пользователя."""
     api_calls = 0
@@ -391,6 +474,7 @@ async def _process_homework_for_user(user_id: int, subs: list) -> ProcessResult:
         return ProcessResult("failed", retryable=False, error="empty_token")
 
     user = await get_user(user_id)
+    user_role = (user or {}).get("role")
     profile_id = user.get("mesh_profile_id") if user else None
     if not profile_id:
         logger.warning("Уведомления ДЗ: отсутствует profile_id для user_id=%d", user_id)
@@ -401,11 +485,25 @@ async def _process_homework_for_user(user_id: int, subs: list) -> ProcessResult:
         logger.warning("Уведомления ДЗ: не найдены дети для user_id=%d", user_id)
         return ProcessResult("failed", retryable=False, error="missing_children")
 
-    today = date.today()
-    tomorrow = today + timedelta(days=1)
+    tz = pytz.timezone(settings.TIMEZONE)
+    now_local = datetime.now(tz)
+    today = now_local.date()
+    tomorrow = _next_school_day(today)
     all_new_hw = []
 
     for child in children:
+        if user_role == "student":
+            allow_send, window_calls, window_errors = await _is_student_homework_window_open(
+                student_id=child["student_id"],
+                token=token,
+                profile_id=profile_id,
+                now_local=now_local,
+            )
+            api_calls += window_calls
+            api_errors += window_errors
+            if not allow_send:
+                continue
+
         client = MeshClient()
         try:
             api_calls += 1
@@ -541,7 +639,7 @@ async def _send_planner_reminders() -> None:
     skipped_count = 0
     error_count = 0
 
-    tomorrow = date.today() + timedelta(days=1)
+    tomorrow = _next_school_day(date.today())
 
     for user_id in by_user:
         try:
@@ -694,9 +792,14 @@ def _format_homework_notification(all_new_hw: list) -> str:
         for hw in hw_list:
             subject = html.escape(hw["subject"])
             assignment = html.escape(hw["assignment"] or "—")
+            due_date = hw.get("due_date")
+            if hasattr(due_date, "strftime"):
+                due_label = due_date.strftime("%d.%m.%Y")
+            else:
+                due_label = html.escape(str(due_date or "—"))
             if len(assignment) > 200:
                 assignment = assignment[:197] + "..."
-            lines.append(f"  {subject}: {assignment}")
+            lines.append(f"  [{due_label}] {subject}: {assignment}")
 
     return "\n".join(lines)
 
