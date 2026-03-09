@@ -94,3 +94,27 @@ v1.7.0 STATUS (done)
   - schedule: today/tomorrow/week
   - grades (admin/parent): today/week/month
 - Added broadcast history block to admin web panel (last 30 runs).
+
+v1.7.1 STATUS (in progress)
+- Fixed fallback quiz pools:
+  - English pool expanded to avoid repeating first 5 questions when 10 are requested.
+  - Mathematics/History/Biology now use separate fallback pools (no cross-subject mixing).
+- Prompt isolation for school subjects:
+  - Mathematics/History/Biology now have dedicated prompt examples and explicit anti-mixing rule.
+- Added quick health script:
+  - `work/check-llm-stack.ps1`
+
+LLM QUICK CHECK (v1.7.1)
+1) Start LM Studio local server (`127.0.0.1:1234`).
+2) Start local bridge (`127.0.0.1:8787`) with token.
+3) Start reverse tunnel to VPS:
+   `powershell -ExecutionPolicy Bypass -File .\work\start-llm-reverse-tunnel.ps1`
+4) Run full check:
+   `powershell -ExecutionPolicy Bypass -File .\work\check-llm-stack.ps1 -BridgeToken "<TOKEN>"`
+
+Expected result:
+- `[OK] LM Studio local`
+- `[OK] Bridge local`
+- `[OK] Server checks`
+
+If failed, script prints exact failing layer (local LM Studio, local bridge, or VPS tunnel/env).

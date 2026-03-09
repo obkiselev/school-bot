@@ -894,3 +894,30 @@
 - Шифрование паролей (Fernet)
 - База данных SQLite
 - Команда /start
+## Pause Snapshot (2026-03-08)
+
+- Version finalized: `v1.7.0`.
+- Implemented: `/report` PDF exports (schedule + grades) and admin web broadcast history table/API.
+- Server deployed: `/opt/school_bot` updated, `reportlab` installed, `school_bot.service` active.
+- Admin web runtime: `ADMIN_WEB_ENABLED=true`, `ADMIN_WEB_HOST=0.0.0.0`, `ADMIN_WEB_PORT=8088`.
+- Git fixed:
+  - commit: `85861fc`
+  - tag: `v1.7.0`
+  - pushed: `origin/main` and `origin/v1.7.0`
+
+## Pause Snapshot (2026-03-09, v1.7.1 in progress)
+
+- Investigated fallback root cause: VPS had only direct `LLM_BASE_URL=http://localhost:1234/v1` active, so LM on a different PC was unreachable without bridge+tunnel.
+- Added `work/check-llm-stack.ps1` for one-command diagnostics of:
+  - local LM Studio
+  - local bridge with token
+  - VPS tunnel endpoint + server `.env` LLM vars
+- Improved school-subject prompt isolation in `llm/prompts.py`:
+  - dedicated examples for Mathematics / History / Biology
+  - explicit no-mixing rule
+- Improved fallback generator in `services/fallback_test_generator.py`:
+  - separate pools per school subject
+  - expanded English pool (10 unique questions for 10-question sessions)
+- Added tests:
+  - `tests/test_prompts.py`
+  - extended `tests/test_quiz_expansion.py` for no-repeat and subject-pool checks

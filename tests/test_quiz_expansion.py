@@ -1,4 +1,4 @@
-"""Tests for v1.5.0 quiz expansion."""
+﻿"""Tests for v1.5.0 quiz expansion."""
 
 from keyboards.quiz_kb import language_keyboard
 from handlers.import_questions import _validate_question
@@ -10,30 +10,30 @@ from services.fallback_test_generator import generate_fallback_test
 def test_answer_checker_matching_with_accept_also():
     question = {
         "type": "matching",
-        "question": "Сопоставь",
-        "correct": "клетка:структурная единица",
-        "accept_also": ["клетка - структурная единица"],
+        "question": "Sopostav",
+        "correct": "kletka:strukturnaya edinitsa",
+        "accept_also": ["kletka - strukturnaya edinitsa"],
         "explanation": "ok",
     }
-    assert check_answer(question, "клетка - структурная единица")
+    assert check_answer(question, "kletka - strukturnaya edinitsa")
 
 
 def test_answer_checker_audio():
     question = {
         "type": "audio",
-        "question": "Ответь",
-        "correct": "лёгкие",
-        "accept_also": ["легкие"],
+        "question": "Otvet",
+        "correct": "legkie",
+        "accept_also": ["lyogkie"],
         "explanation": "ok",
     }
-    assert check_answer(question, "легкие")
+    assert check_answer(question, "legkie")
 
 
 def test_parser_accepts_matching_and_audio():
     raw = """
     [
-      {"type":"matching","question":"Сопоставь термин","correct":"митоз","explanation":"ok"},
-      {"type":"audio","question":"Прослушай и ответь","audio_text":"подсказка","correct":"лёгкие","explanation":"ok"}
+      {"type":"matching","question":"Sopostav termin","correct":"mitoz","explanation":"ok"},
+      {"type":"audio","question":"Proslushay i otvet","audio_text":"podskazka","correct":"legkie","explanation":"ok"}
     ]
     """
     parsed = parse_questions(raw)
@@ -59,7 +59,7 @@ def test_language_keyboard_has_new_options():
 
 
 def test_fallback_supports_school_subject():
-    quiz = generate_fallback_test("Mathematics", "Линейные уравнения", 3, level="School")
+    quiz = generate_fallback_test("Mathematics", "Linear equations", 3, level="School")
     assert len(quiz) == 3
     assert all("Fallback" in item["question"] for item in quiz)
 
@@ -67,11 +67,28 @@ def test_fallback_supports_school_subject():
 def test_import_audio_question_requires_audio_source():
     q_without_audio = {
         "type": "audio",
-        "question": "Прослушай",
-        "correct": "ответ",
+        "question": "Proslushay",
+        "correct": "otvet",
         "explanation": "ok",
     }
     q_with_audio = dict(q_without_audio)
     q_with_audio["audio_file_id"] = "AwACAgIAAxkBAAIB..."
     assert not _validate_question(q_without_audio)
     assert _validate_question(q_with_audio)
+
+
+def test_fallback_english_no_repeats_for_10_questions():
+    quiz = generate_fallback_test("English", "Present Simple", 10, level="A2")
+    texts = [item["question"] for item in quiz]
+    assert len(texts) == 10
+    assert len(set(texts)) == 10
+
+
+def test_fallback_subject_pools_are_not_mixed():
+    history = generate_fallback_test("History", "Ancient world", 5, level="School")
+    biology = generate_fallback_test("Biology", "Cell", 5, level="School")
+    math = generate_fallback_test("Mathematics", "Fractions", 5, level="School")
+
+    assert any("Patriotic War" in item["question"] for item in history)
+    assert any("cell" in item["question"].lower() for item in biology)
+    assert any("7 * 8" in item["question"] for item in math)

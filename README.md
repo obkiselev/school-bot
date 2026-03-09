@@ -366,6 +366,27 @@ ssh -L 8088:127.0.0.1:8088 -i $key -p 4422 school_bot@45.152.113.91
   - `LLM_API_KEY=<токен bridge>`
   - `LLM_BASE_URL` можно оставить как резервный fallback.
 
+### Быстрая проверка LLM стека (v1.7.1)
+
+- Новый скрипт: `work/check-llm-stack.ps1`
+- Что проверяет:
+  - локальный LM Studio (`127.0.0.1:1234/v1/models`)
+  - локальный bridge (`127.0.0.1:8787/v1/models`, с Bearer токеном)
+  - серверный reverse-tunnel endpoint (`127.0.0.1:12340/v1/models`)
+  - ключевые LLM-переменные в `/opt/school_bot/.env`
+
+Пример запуска:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\work\check-llm-stack.ps1 -BridgeToken "<TOKEN>"
+```
+
+Перед проверкой обычно нужно поднять reverse tunnel:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\work\start-llm-reverse-tunnel.ps1
+```
+
 ## Лицензия
 
 MIT License
