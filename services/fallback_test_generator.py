@@ -18,7 +18,7 @@ _ENGLISH_POOL: list[dict] = [
     },
     {
         "type": "translation",
-        "question": "Translate: Ya chitayu knigu kazhdyi vecher.",
+        "question": "Translate: ? ????? ????? ?????? ?????.",
         "correct": "I read a book every evening.",
         "accept_also": ["I read a book every night."],
         "explanation": "This is a regular action, so Present Simple is used.",
@@ -87,7 +87,7 @@ _SPANISH_POOL: list[dict] = [
     },
     {
         "type": "translation",
-        "question": "Translate: U menya est domashnee zadanie.",
+        "question": "Translate: ? ???? ???? ???????? ???????.",
         "correct": "Tengo tarea.",
         "accept_also": ["Yo tengo tarea."],
         "explanation": "The verb 'tener' in first person is 'tengo'.",

@@ -80,6 +80,7 @@ async def chat_completion(prompt: str, temperature: float = 0.7, max_tokens: int
         _last_llm_error = "No LLM endpoints configured"
         return None
 
+    errors: list[str] = []
     for base_url, api_key, label in targets:
         try:
             result = await _request_chat_completion(
@@ -93,9 +94,13 @@ async def chat_completion(prompt: str, temperature: float = 0.7, max_tokens: int
                 _last_llm_error = None
                 return result
             logger.warning("LLM %s endpoint returned empty response", label)
-            _last_llm_error = f"{label} endpoint returned empty response"
+            msg = f"{label} endpoint returned empty response"
+            errors.append(msg)
+            _last_llm_error = msg
         except Exception as e:
-            _last_llm_error = f"{label} endpoint failed: {e}"
+            msg = f"{label} endpoint failed: {e}"
+            errors.append(msg)
+            _last_llm_error = msg
             logger.warning(
                 "LLM request failed via %s endpoint (url=%s, model=%s, prompt_len=%d): %s",
                 label,
@@ -106,7 +111,9 @@ async def chat_completion(prompt: str, temperature: float = 0.7, max_tokens: int
             )
 
     logger.error("All LLM endpoints failed (model=%s, prompt_len=%d)", settings.LLM_MODEL, len(prompt))
-    if _last_llm_error is None:
+    if errors:
+        _last_llm_error = " | ".join(errors)
+    elif _last_llm_error is None:
         _last_llm_error = "All LLM endpoints failed"
     return None
 
