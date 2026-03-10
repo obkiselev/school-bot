@@ -440,3 +440,77 @@ class TestHomeworkSummaryBehavior:
 
         assert "<b>Иван Иванов</b>" in result
         assert "10.03.2026" in result
+
+
+class TestHomeworkUpdates:
+    def test_classify_homework_changes(self):
+        from services.notification_service import _classify_homework_changes
+
+        known = [
+            {"subject": "Математика", "assignment": "стр. 10"},
+            {"subject": "Русский", "assignment": "упр. 1"},
+        ]
+        new = [
+            {"subject": "Физика", "assignment": "§5"},
+            {"subject": "Русский", "assignment": "упр. 2"},
+        ]
+
+        added, changed = _classify_homework_changes(new, known)
+        assert len(added) == 1
+        assert added[0]["subject"] == "Физика"
+        assert len(changed) == 1
+        assert changed[0]["subject"] == "Русский"
+
+    @patch("services.notification_service.log_activity", new_callable=AsyncMock)
+    @patch("services.notification_service.mark_homework_notified", new_callable=AsyncMock)
+    @patch("services.notification_service._safe_send_message", new_callable=AsyncMock)
+    @patch("services.notification_service.get_unnotified_homework_for_date", new_callable=AsyncMock)
+    @patch("services.notification_service.get_notified_homework_for_date", new_callable=AsyncMock)
+    @patch("services.notification_service.cache_new_homework", new_callable=AsyncMock)
+    @patch("services.notification_service.MeshClient")
+    @patch("services.notification_service.was_homework_summary_sent", new_callable=AsyncMock)
+    @patch("services.notification_service.get_user_children", new_callable=AsyncMock)
+    @patch("services.notification_service.get_user", new_callable=AsyncMock)
+    @patch("services.notification_service.ensure_token", new_callable=AsyncMock)
+    async def test_updates_sent_on_new_or_changed_homework(
+        self,
+        mock_token,
+        mock_get_user,
+        mock_get_children,
+        mock_summary_sent,
+        MockClient,
+        mock_cache_new,
+        mock_known,
+        mock_unnotified,
+        mock_send,
+        mock_mark,
+        mock_log,
+    ):
+        mock_token.return_value = "token"
+        mock_get_user.return_value = {"mesh_profile_id": 1}
+        mock_get_children.return_value = [
+            {"child_id": 1, "student_id": 100, "first_name": "Иван", "last_name": "Иванов"}
+        ]
+        mock_summary_sent.return_value = True
+
+        mock_client = MagicMock()
+        mock_client.get_homework = AsyncMock(return_value=[
+            MagicMock(subject="Русский", assignment="упр. 2", due_date="2026-03-11")
+        ])
+        mock_client.close = AsyncMock()
+        MockClient.return_value = mock_client
+
+        mock_cache_new.return_value = 1
+        mock_known.return_value = [{"subject": "Русский", "assignment": "упр. 1", "due_date": "2026-03-11"}]
+        mock_unnotified.return_value = [
+            {"homework_id": 101, "subject": "Русский", "assignment": "упр. 2", "due_date": "2026-03-11"}
+        ]
+        mock_send.return_value = True
+
+        from services.notification_service import _process_homework_updates_for_user
+        result = await _process_homework_updates_for_user(12345, [{"user_id": 12345}])
+
+        assert result.status == "sent"
+        mock_send.assert_called_once()
+        mock_mark.assert_called_once_with([101])
+        mock_log.assert_called_once()

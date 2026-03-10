@@ -993,3 +993,8 @@ Notification fixes (2026-03-10)
 - Homework polling is aligned to each minute so delivery no longer drifts to arbitrary `:28/:38/:58` times.
 - Duplicate summary sends for the same student/date are blocked after the first successful delivery.
 - Grade notifications now always include the student name and the exact report date in the message header.
+
+Homework updates extension (2026-03-10)
+- Added dedicated homework-updates pipeline with scheduler interval 15 minutes.
+- Added post-summary MES recheck for next school day homework and delta-notification delivery.
+- Added Added/Changed classification for changed homework items with explicit formatting in user notification.

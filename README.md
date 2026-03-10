@@ -465,3 +465,8 @@ Notification fixes (2026-03-10)
 - Homework notifications: one summary per student for the next school day, sent 30 minutes after that student's last lesson.
 - Homework notifications no longer split into separate partial messages during the day and are not resent for the same student/date.
 - Grade notifications now always include the student name and the report date in the message header.
+
+Homework updates extension (2026-03-10)
+- Added a separate delayed-updates pipeline for homework with polling every 15 minutes.
+- After the first daily summary is sent, the bot checks MES for newly added or changed homework and sends delta notifications.
+- Delta notifications explicitly separate "Added" and "Changed" items per student and are delivered to all homework subscribers (parent/student accounts).

@@ -549,6 +549,21 @@ async def get_unnotified_homework_for_date(child_id: int, due_date: str) -> List
     ]
 
 
+async def get_notified_homework_for_date(child_id: int, due_date: str) -> List[Dict]:
+    """Get already notified homework for a specific due date."""
+    db = get_db()
+    rows = await db.fetchall(
+        """SELECT homework_id, subject, assignment, due_date
+           FROM homework_cache
+           WHERE child_id = ? AND due_date = ? AND is_notified = 1""",
+        (child_id, due_date),
+    )
+    return [
+        {"homework_id": row[0], "subject": row[1], "assignment": row[2], "due_date": row[3]}
+        for row in rows
+    ]
+
+
 async def mark_homework_notified(homework_ids: List[int]) -> None:
     """Пометить ДЗ как отправленные."""
     if not homework_ids:

@@ -25,6 +25,7 @@ from database.crud import (
     mark_grades_notified,
     cache_new_homework,
     get_unnotified_homework_for_date,
+    get_notified_homework_for_date,
     mark_homework_notified,
     was_homework_summary_sent,
     mark_homework_summary_sent,
@@ -74,6 +75,7 @@ _outage_state = {
 }
 
 _HOMEWORK_SEND_DELAY_MIN = 30
+_HOMEWORK_UPDATES_INTERVAL_MIN = 15
 
 _CONTROL_LESSON_KEYWORDS = (
     "контроль",
@@ -122,6 +124,16 @@ def init_scheduler(bot: Bot) -> AsyncIOScheduler:
         _send_homework_notifications,
         CronTrigger(minute="*", timezone=tz),
         id="daily_homework",
+        replace_existing=True,
+        misfire_grace_time=300,
+        coalesce=True,
+    )
+
+    # Р”Р—: РїРѕСЃР»Рµ РїРµСЂРІРѕР№ СЃРІРѕРґРєРё РїСЂРѕРІРµСЂСЏРµРј РёР·РјРµРЅРµРЅРёСЏ РєР°Р¶РґС‹Рµ 15 РјРёРЅСѓС‚.
+    scheduler.add_job(
+        _send_homework_updates_notifications,
+        CronTrigger(minute=f"*/{_HOMEWORK_UPDATES_INTERVAL_MIN}", timezone=tz),
+        id="homework_updates",
         replace_existing=True,
         misfire_grace_time=300,
         coalesce=True,
@@ -494,6 +506,9 @@ async def _process_homework_for_user(user_id: int, subs: list) -> ProcessResult:
     ready_children = 0
 
     for child in children:
+        if await was_homework_summary_sent(user_id, child["child_id"], tomorrow_str):
+            continue
+
         allow_send, window_calls, window_errors = await _is_student_homework_window_open(
             student_id=child["student_id"],
             token=token,
@@ -503,9 +518,6 @@ async def _process_homework_for_user(user_id: int, subs: list) -> ProcessResult:
         api_calls += window_calls
         api_errors += window_errors
         if not allow_send:
-            continue
-
-        if await was_homework_summary_sent(user_id, child["child_id"], tomorrow_str):
             continue
 
         ready_children += 1
@@ -592,6 +604,229 @@ async def _process_homework_for_user(user_id: int, subs: list) -> ProcessResult:
 # ============================================================================
 # ПЛАНИРОВЩИК НАПОМИНАНИЙ (v1.2.0)
 # ============================================================================
+
+def _classify_homework_changes(
+    new_homework: list[dict],
+    known_homework: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    """Split fresh cache rows into added vs changed records."""
+    known_by_subject: dict[str, set[str]] = defaultdict(set)
+    for hw in known_homework:
+        subject = (hw.get("subject") or "").strip()
+        if not subject:
+            continue
+        known_by_subject[subject].add((hw.get("assignment") or "").strip())
+
+    added: list[dict] = []
+    changed: list[dict] = []
+    for hw in new_homework:
+        subject = (hw.get("subject") or "").strip()
+        assignment = (hw.get("assignment") or "").strip()
+        if not subject:
+            continue
+
+        if subject not in known_by_subject:
+            added.append(hw)
+            continue
+
+        if assignment not in known_by_subject[subject]:
+            changed.append(hw)
+
+    return added, changed
+
+
+def _format_homework_updates_notification(
+    changes_by_child: list[tuple[str, list[dict], list[dict]]],
+    due_date: date,
+) -> str:
+    """Format notification for late homework updates."""
+    lines = [f"<b>Изменения в ДЗ на {_format_notification_date(due_date)}</b>", ""]
+
+    for child_name, added_items, changed_items in changes_by_child:
+        lines.append(f"<b>{html.escape(child_name)}</b>")
+
+        if added_items:
+            lines.append("<b>Добавлено:</b>")
+            for hw in added_items:
+                subject = html.escape(hw.get("subject") or "—")
+                assignment = html.escape(hw.get("assignment") or "—")
+                if len(assignment) > 200:
+                    assignment = assignment[:197] + "..."
+                lines.append(f"  {subject}: {assignment}")
+
+        if changed_items:
+            lines.append("<b>Изменено:</b>")
+            for hw in changed_items:
+                subject = html.escape(hw.get("subject") or "—")
+                assignment = html.escape(hw.get("assignment") or "—")
+                if len(assignment) > 200:
+                    assignment = assignment[:197] + "..."
+                lines.append(f"  {subject}: {assignment}")
+
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+async def _process_homework_updates_for_user(user_id: int, subs: list) -> ProcessResult:
+    """Process delayed homework changes for one user."""
+    api_calls = 0
+    api_errors = 0
+
+    try:
+        token = await ensure_token(user_id)
+    except Exception as e:
+        logger.warning("Homework updates: token error user_id=%d: %s", user_id, e)
+        return ProcessResult("failed", retryable=False, error=f"token_error: {e}")
+
+    if not token:
+        return ProcessResult("failed", retryable=False, error="empty_token")
+
+    user = await get_user(user_id)
+    profile_id = user.get("mesh_profile_id") if user else None
+    if not profile_id:
+        return ProcessResult("failed", retryable=False, error="missing_profile_id")
+
+    children = await get_user_children(user_id)
+    if not children:
+        return ProcessResult("no_changes", api_calls=api_calls, api_errors=api_errors)
+
+    tomorrow = _next_school_day(date.today())
+    tomorrow_str = tomorrow.isoformat()
+    changes_payload: list[tuple[str, list[dict], list[dict], list[int]]] = []
+
+    for child in children:
+        if not await was_homework_summary_sent(user_id, child["child_id"], tomorrow_str):
+            continue
+
+        client = MeshClient()
+        try:
+            api_calls += 1
+            homework_list = await client.get_homework(
+                student_id=child["student_id"],
+                from_date=tomorrow_str,
+                to_date=tomorrow_str,
+                token=token,
+                profile_id=profile_id,
+            )
+        except (AuthenticationError, MeshAPIError) as e:
+            api_errors += 1
+            logger.warning("Homework updates: API error for student_id=%d: %s", child["student_id"], e)
+            continue
+        finally:
+            await client.close()
+
+        hw_dicts = [
+            {
+                "subject": hw.subject,
+                "assignment": hw.assignment,
+                "due_date": hw.due_date,
+            }
+            for hw in homework_list
+        ]
+        if not hw_dicts:
+            continue
+
+        new_count = await cache_new_homework(child["child_id"], hw_dicts)
+        if new_count <= 0:
+            continue
+
+        known_hw = await get_notified_homework_for_date(child["child_id"], tomorrow_str)
+        new_hw = await get_unnotified_homework_for_date(child["child_id"], tomorrow_str)
+        if not new_hw:
+            continue
+
+        added_items, changed_items = _classify_homework_changes(new_hw, known_hw)
+        if not added_items and not changed_items:
+            added_items = new_hw
+
+        ids = [hw["homework_id"] for hw in new_hw]
+        child_name = f"{child['first_name']} {child['last_name']}"
+        changes_payload.append((child_name, added_items, changed_items, ids))
+
+    if changes_payload:
+        text = _format_homework_updates_notification(
+            [(name, added, changed) for name, added, changed, _ in changes_payload],
+            tomorrow,
+        )
+        sent_ok = await _safe_send_message(user_id, text)
+        if sent_ok:
+            for _, _, _, ids in changes_payload:
+                await mark_homework_notified(ids)
+
+            added_total = sum(len(x[1]) for x in changes_payload)
+            changed_total = sum(len(x[2]) for x in changes_payload)
+            await log_activity(
+                user_id,
+                "notification_sent",
+                f"homework_updates: children={len(changes_payload)}, added={added_total}, changed={changed_total}, due_date={tomorrow_str}",
+            )
+            return ProcessResult("sent", api_calls=api_calls, api_errors=api_errors)
+
+        return ProcessResult(
+            "failed",
+            retryable=False,
+            api_calls=api_calls,
+            api_errors=api_errors,
+            error="send_failed",
+        )
+
+    if api_calls > 0 and api_errors == api_calls:
+        return ProcessResult(
+            "failed",
+            retryable=False,
+            api_calls=api_calls,
+            api_errors=api_errors,
+            error="mesh_api_unavailable",
+        )
+
+    return ProcessResult("no_changes", api_calls=api_calls, api_errors=api_errors)
+
+
+async def _send_homework_updates_notifications() -> None:
+    """Scheduler task: notify about late homework updates every 15 minutes."""
+    logger.info("Homework updates: polling for late changes...")
+
+    subscribers = await get_users_with_notifications("homework")
+    if not subscribers:
+        return
+
+    by_user = defaultdict(list)
+    for sub in subscribers:
+        by_user[sub["user_id"]].append(sub)
+
+    total_users = len(by_user)
+    sent_count = 0
+    skipped_count = 0
+    error_count = 0
+    api_calls_total = 0
+    api_errors_total = 0
+
+    for user_id, subs in by_user.items():
+        try:
+            result = await _process_homework_updates_for_user(user_id, subs)
+            api_calls_total += result.api_calls
+            api_errors_total += result.api_errors
+            if result.status == "sent":
+                sent_count += 1
+            elif result.status == "failed":
+                error_count += 1
+            else:
+                skipped_count += 1
+        except Exception as e:
+            logger.error("Homework updates: user_id=%d failed: %s", user_id, e)
+            error_count += 1
+
+    logger.info(
+        "Homework updates: sent=%d/%d, no_changes=%d, errors=%d",
+        sent_count,
+        total_users,
+        skipped_count,
+        error_count,
+    )
+    await _handle_outage_state("homework", api_calls_total, api_errors_total)
+    await save_notification_run("homework_updates", date.today())
+
 
 def _is_control_lesson(lesson_type: Optional[str], subject: Optional[str]) -> bool:
     """Определяет, относится ли урок к контрольным/проверочным."""
