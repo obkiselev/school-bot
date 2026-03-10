@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from collections import defaultdict
 from datetime import date, timedelta
 from datetime import datetime, time as dt_time
-from typing import Optional, Literal
+from typing import Optional, Literal, Union
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
@@ -24,8 +24,10 @@ from database.crud import (
     get_unnotified_grades,
     mark_grades_notified,
     cache_new_homework,
-    get_unnotified_homework,
+    get_unnotified_homework_for_date,
     mark_homework_notified,
+    was_homework_summary_sent,
+    mark_homework_summary_sent,
     disable_all_notifications,
     cleanup_old_cache,
     log_activity,
@@ -71,7 +73,6 @@ _outage_state = {
     "homework": {"consecutive": 0, "last_alert_at": None},
 }
 
-_HOMEWORK_CHECK_INTERVAL_MIN = 10
 _HOMEWORK_SEND_DELAY_MIN = 30
 
 _CONTROL_LESSON_KEYWORDS = (
@@ -119,7 +120,7 @@ def init_scheduler(bot: Bot) -> AsyncIOScheduler:
     # открывается через 30 минут после окончания последнего урока.
     scheduler.add_job(
         _send_homework_notifications,
-        IntervalTrigger(minutes=_HOMEWORK_CHECK_INTERVAL_MIN, timezone=tz),
+        CronTrigger(minute="*", timezone=tz),
         id="daily_homework",
         replace_existing=True,
         misfire_grace_time=300,
@@ -474,7 +475,6 @@ async def _process_homework_for_user(user_id: int, subs: list) -> ProcessResult:
         return ProcessResult("failed", retryable=False, error="empty_token")
 
     user = await get_user(user_id)
-    user_role = (user or {}).get("role")
     profile_id = user.get("mesh_profile_id") if user else None
     if not profile_id:
         logger.warning("Уведомления ДЗ: отсутствует profile_id для user_id=%d", user_id)
@@ -489,28 +489,34 @@ async def _process_homework_for_user(user_id: int, subs: list) -> ProcessResult:
     now_local = datetime.now(tz)
     today = now_local.date()
     tomorrow = _next_school_day(today)
-    all_new_hw = []
+    tomorrow_str = tomorrow.isoformat()
+    homework_summaries = []
+    ready_children = 0
 
     for child in children:
-        if user_role == "student":
-            allow_send, window_calls, window_errors = await _is_student_homework_window_open(
-                student_id=child["student_id"],
-                token=token,
-                profile_id=profile_id,
-                now_local=now_local,
-            )
-            api_calls += window_calls
-            api_errors += window_errors
-            if not allow_send:
-                continue
+        allow_send, window_calls, window_errors = await _is_student_homework_window_open(
+            student_id=child["student_id"],
+            token=token,
+            profile_id=profile_id,
+            now_local=now_local,
+        )
+        api_calls += window_calls
+        api_errors += window_errors
+        if not allow_send:
+            continue
+
+        if await was_homework_summary_sent(user_id, child["child_id"], tomorrow_str):
+            continue
+
+        ready_children += 1
 
         client = MeshClient()
         try:
             api_calls += 1
             homework_list = await client.get_homework(
                 student_id=child["student_id"],
-                from_date=tomorrow.isoformat(),
-                to_date=(tomorrow + timedelta(days=6)).isoformat(),
+                from_date=tomorrow_str,
+                to_date=tomorrow_str,
                 token=token,
                 profile_id=profile_id,
             )
@@ -521,9 +527,6 @@ async def _process_homework_for_user(user_id: int, subs: list) -> ProcessResult:
         finally:
             await client.close()
 
-        if not homework_list:
-            continue
-
         hw_dicts = [
             {
                 "subject": hw.subject,
@@ -533,24 +536,33 @@ async def _process_homework_for_user(user_id: int, subs: list) -> ProcessResult:
             for hw in homework_list
         ]
 
-        new_count = await cache_new_homework(child["child_id"], hw_dicts)
-        if new_count > 0:
-            unnotified = await get_unnotified_homework(child["child_id"])
-            child_name = f"{child['first_name']} {child['last_name']}"
-            all_new_hw.append((child_name, unnotified))
+        if hw_dicts:
+            await cache_new_homework(child["child_id"], hw_dicts)
+
+        child_name = f"{child['first_name']} {child['last_name']}"
+        homework_summaries.append((child, child_name, hw_dicts))
 
 
-    if all_new_hw:
-        text = _format_homework_notification(all_new_hw)
+    if homework_summaries:
+        text = _format_homework_notification(
+            [(child_name, hw_list) for _, child_name, hw_list in homework_summaries],
+            tomorrow,
+        )
         sent_ok = await _safe_send_message(user_id, text)
 
         if sent_ok:
-            for _, hw_list in all_new_hw:
-                ids = [hw["homework_id"] for hw in hw_list]
+            for child, _, _ in homework_summaries:
+                cached_hw = await get_unnotified_homework_for_date(child["child_id"], tomorrow_str)
+                ids = [hw["homework_id"] for hw in cached_hw]
                 await mark_homework_notified(ids)
+                await mark_homework_summary_sent(user_id, child["child_id"], tomorrow_str)
 
-            total = sum(len(h) for _, h in all_new_hw)
-            await log_activity(user_id, "notification_sent", f"homework: {total} new")
+            total = sum(len(h) for _, _, h in homework_summaries)
+            await log_activity(
+                user_id,
+                "notification_sent",
+                f"homework_summary: children={len(homework_summaries)}, items={total}, due_date={tomorrow_str}",
+            )
             return ProcessResult("sent", api_calls=api_calls, api_errors=api_errors)
 
         logger.warning("Уведомления ДЗ: не удалось отправить user_id=%d", user_id)
@@ -570,6 +582,9 @@ async def _process_homework_for_user(user_id: int, subs: list) -> ProcessResult:
             api_errors=api_errors,
             error="mesh_api_unavailable",
         )
+
+    if ready_children > 0:
+        return ProcessResult("no_changes", api_calls=api_calls, api_errors=api_errors)
 
     return ProcessResult("no_changes", api_calls=api_calls, api_errors=api_errors)
 
@@ -807,6 +822,59 @@ def _format_homework_notification(all_new_hw: list) -> str:
 # ============================================================================
 # ОТПРАВКА
 # ============================================================================
+
+def _format_notification_date(value: Optional[Union[date, str]] = None) -> str:
+    """Return DD.MM.YYYY for notification headers."""
+    if value is None:
+        value = date.today()
+    if hasattr(value, "strftime"):
+        return value.strftime("%d.%m.%Y")
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value).strftime("%d.%m.%Y")
+        except ValueError:
+            pass
+    return html.escape(str(value))
+
+
+def _format_grades_notification(all_new_grades: list, report_date: Optional[Union[date, str]] = None) -> str:
+    """Format grades notification with explicit child name and date."""
+    lines = [f"<b>Новые оценки за сегодня, {_format_notification_date(report_date)}</b>\n"]
+
+    for child_name, grades in all_new_grades:
+        lines.append(f"\n<b>{html.escape(child_name)}</b>")
+
+        for g in grades:
+            subject = html.escape(g["subject"])
+            value = html.escape(str(g["grade_value"]))
+            line = f"  {subject} — <b>{value}</b>"
+            if g.get("lesson_type"):
+                line += f" ({html.escape(g['lesson_type'])})"
+            lines.append(line)
+
+    return "\n".join(lines)
+
+
+def _format_homework_notification(all_new_hw: list, due_date: Optional[Union[date, str]] = None) -> str:
+    """Format per-student homework summary for the next school day."""
+    lines = [f"<b>Домашние задания на {_format_notification_date(due_date)}</b>\n"]
+
+    for child_name, hw_list in all_new_hw:
+        lines.append(f"\n<b>{html.escape(child_name)}</b>")
+
+        if not hw_list:
+            lines.append("  Домашних заданий нет.")
+            continue
+
+        for hw in hw_list:
+            subject = html.escape(hw["subject"])
+            assignment = html.escape(hw["assignment"] or "—")
+            if len(assignment) > 200:
+                assignment = assignment[:197] + "..."
+            lines.append(f"  {subject}: {assignment}")
+
+    return "\n".join(lines)
+
 
 _SEND_RETRIES = 3
 _SEND_RETRY_DELAY = 3  # секунд

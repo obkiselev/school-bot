@@ -428,3 +428,40 @@ Quick admin web access (secure)
   ssh -L 8088:127.0.0.1:8088 -i ~/.ssh/id_ed25519_rag -p 4422 school_bot@45.152.113.91
 - Open in browser:
   http://127.0.0.1:8088/admin?token=<ADMIN_WEB_TOKEN>
+
+---
+HISTORY UPDATE (2026-03-09, Katana17)
+Current stable version: v1.7.3
+
+v1.7.3
+- Homework notifications now include explicit due date in each item.
+- Default /dz period changed to next school day (+1 school day).
+- 5-day school week rule added:
+  - Friday -> Monday
+  - Saturday -> Monday
+- Student homework push logic updated:
+  - send only after last lesson end time + 30 minutes
+  - periodic checks every 10 minutes
+  - fallback to HOMEWORK_NOTIFICATION_TIME when no lessons are present
+- Deployed to VPS and verified service status: active.
+
+Katana17 execution notes
+- Local repo/workdir: E:\claude\school_bot
+- Local shell: Windows PowerShell
+- SSH/SCP binaries used by deploy script:
+  - E:\Progs\Git\usr\bin\ssh.exe
+  - E:\Progs\Git\usr\bin\scp.exe
+- SSH key used:
+  - C:\Users\Олег\.ssh\id_ed25519_rag
+- Production deploy command used:
+  - work/deploy-school-bot.ps1 -SourceDir e:/claude/school_bot
+
+Git fixation
+- Commit: d334ec6
+- Tag: v1.7.3
+- Pushed: origin/main and origin/v1.7.3
+
+Notification fixes (2026-03-10)
+- Homework notifications: one summary per student for the next school day, sent 30 minutes after that student's last lesson.
+- Homework notifications no longer split into separate partial messages during the day and are not resent for the same student/date.
+- Grade notifications now always include the student name and the report date in the message header.

@@ -534,6 +534,21 @@ async def get_unnotified_homework(child_id: int) -> List[Dict]:
     ]
 
 
+async def get_unnotified_homework_for_date(child_id: int, due_date: str) -> List[Dict]:
+    """Get unnotified homework for a specific due date."""
+    db = get_db()
+    rows = await db.fetchall(
+        """SELECT homework_id, subject, assignment, due_date
+           FROM homework_cache
+           WHERE child_id = ? AND due_date = ? AND is_notified = 0""",
+        (child_id, due_date),
+    )
+    return [
+        {"homework_id": row[0], "subject": row[1], "assignment": row[2], "due_date": row[3]}
+        for row in rows
+    ]
+
+
 async def mark_homework_notified(homework_ids: List[int]) -> None:
     """Пометить ДЗ как отправленные."""
     if not homework_ids:
@@ -543,6 +558,30 @@ async def mark_homework_notified(homework_ids: List[int]) -> None:
     await db.execute(
         f"UPDATE homework_cache SET is_notified = 1 WHERE homework_id IN ({placeholders})",
         tuple(homework_ids),
+    )
+
+
+async def was_homework_summary_sent(user_id: int, child_id: int, due_date: str) -> bool:
+    """Check whether a homework summary was already sent for this child/date."""
+    db = get_db()
+    row = await db.fetchone(
+        """SELECT 1
+           FROM activity_log
+           WHERE user_id = ?
+             AND action = 'homework_summary_sent'
+             AND details = ?
+           LIMIT 1""",
+        (user_id, f"child_id={child_id};due_date={due_date}"),
+    )
+    return row is not None
+
+
+async def mark_homework_summary_sent(user_id: int, child_id: int, due_date: str) -> None:
+    """Persist successful homework summary delivery."""
+    await log_activity(
+        user_id,
+        "homework_summary_sent",
+        f"child_id={child_id};due_date={due_date}",
     )
 
 

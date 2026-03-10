@@ -389,3 +389,54 @@ class TestMarkOnlyOnSuccess:
 
         mock_mark.assert_called_once()
         mock_log.assert_called_once()
+
+
+class TestHomeworkSummaryBehavior:
+    @patch("services.notification_service.was_homework_summary_sent", new_callable=AsyncMock)
+    @patch("services.notification_service.get_user_children", new_callable=AsyncMock)
+    @patch("services.notification_service.get_user", new_callable=AsyncMock)
+    @patch("services.notification_service.ensure_token", new_callable=AsyncMock)
+    async def test_homework_summary_skips_already_sent(
+        self, mock_token, mock_get_user, mock_get_children, mock_sent
+    ):
+        mock_token.return_value = "token"
+        mock_get_user.return_value = {"mesh_profile_id": 1}
+        mock_get_children.return_value = [
+            {"child_id": 1, "student_id": 100, "first_name": "Иван", "last_name": "Иванов"}
+        ]
+        mock_sent.return_value = True
+
+        with patch(
+            "services.notification_service._is_student_homework_window_open",
+            new=AsyncMock(return_value=(True, 1, 0)),
+        ), patch(
+            "services.notification_service._safe_send_message",
+            new=AsyncMock(),
+        ) as mock_send:
+            from services.notification_service import _process_homework_for_user
+            result = await _process_homework_for_user(12345, [{"user_id": 12345}])
+
+        assert result.status == "no_changes"
+        mock_send.assert_not_called()
+
+    def test_single_child_name_always_present_in_homework_format(self):
+        from services.notification_service import _format_homework_notification
+
+        result = _format_homework_notification(
+            [("Иван Иванов", [{"subject": "Математика", "assignment": "стр. 42", "due_date": "2026-03-11"}])],
+            "2026-03-11",
+        )
+
+        assert "<b>Иван Иванов</b>" in result
+        assert "11.03.2026" in result
+
+    def test_single_child_name_and_date_present_in_grades_format(self):
+        from services.notification_service import _format_grades_notification
+
+        result = _format_grades_notification(
+            [("Иван Иванов", [{"subject": "Математика", "grade_value": "5", "lesson_type": None}])],
+            "2026-03-10",
+        )
+
+        assert "<b>Иван Иванов</b>" in result
+        assert "10.03.2026" in result
