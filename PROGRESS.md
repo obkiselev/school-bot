@@ -998,3 +998,4 @@ Homework updates extension (2026-03-10)
 - Added dedicated homework-updates pipeline with scheduler interval 15 minutes.
 - Added post-summary MES recheck for next school day homework and delta-notification delivery.
 - Added Added/Changed classification for changed homework items with explicit formatting in user notification.
+- Fixed schedule fetch in homework window check: switched to valid `person_id` + `mes_role` call signature.

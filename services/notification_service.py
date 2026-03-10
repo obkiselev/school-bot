@@ -427,7 +427,8 @@ async def _is_student_homework_window_open(
     *,
     student_id: int,
     token: str,
-    profile_id: int,
+    person_id: Optional[str],
+    mes_role: str,
     now_local: datetime,
 ) -> tuple[bool, int, int]:
     """
@@ -444,7 +445,8 @@ async def _is_student_homework_window_open(
             student_id=student_id,
             date_str=now_local.date().isoformat(),
             token=token,
-            profile_id=profile_id,
+            person_id=person_id,
+            mes_role=mes_role,
         )
     except (AuthenticationError, MeshAPIError) as e:
         api_errors += 1
@@ -487,6 +489,7 @@ async def _process_homework_for_user(user_id: int, subs: list) -> ProcessResult:
         return ProcessResult("failed", retryable=False, error="empty_token")
 
     user = await get_user(user_id)
+    mes_role = user.get("mesh_role", "parent") if user else "parent"
     profile_id = user.get("mesh_profile_id") if user else None
     if not profile_id:
         logger.warning("Уведомления ДЗ: отсутствует profile_id для user_id=%d", user_id)
@@ -512,7 +515,8 @@ async def _process_homework_for_user(user_id: int, subs: list) -> ProcessResult:
         allow_send, window_calls, window_errors = await _is_student_homework_window_open(
             student_id=child["student_id"],
             token=token,
-            profile_id=profile_id,
+            person_id=child.get("person_id"),
+            mes_role=mes_role,
             now_local=now_local,
         )
         api_calls += window_calls

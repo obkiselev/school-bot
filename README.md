@@ -470,3 +470,4 @@ Homework updates extension (2026-03-10)
 - Added a separate delayed-updates pipeline for homework with polling every 15 minutes.
 - After the first daily summary is sent, the bot checks MES for newly added or changed homework and sends delta notifications.
 - Delta notifications explicitly separate "Added" and "Changed" items per student and are delivered to all homework subscribers (parent/student accounts).
+- Fixed lesson-window check call to MES schedule API (`person_id` + `mes_role`) to match client signature.
