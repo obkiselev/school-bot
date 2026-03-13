@@ -2,9 +2,25 @@
 
 ## Текущая версия: 1.6.0
 
+## Release Snapshot (2026-03-13)
+
+Current stable version: v1.7.4
+
+v1.7.4
+- Fixed forced daily МЭШ reauth for fallback sessions without OAuth refresh data.
+- Fallback tokens are no longer treated as expired by a local 24h timer.
+- The bot now keeps such sessions until the API returns a real 401.
+- Added regression tests for token manager behavior with and without OAuth refresh data.
+
 ## Статус: v1.6.0 (веб-панель админа + групповые рассылки)
 
 ---
+
+## Последние фиксы
+
+- [x] Убран принудительный суточный reauth МЭШ для fallback-сессий без OAuth refresh-данных:
+  бот больше не инициирует новый SMS-вход только потому, что локальный `token_expires_at`
+  дошёл до искусственной отметки `24h`; такой токен теперь используется до реального `401` от API.
 
 ## Завершено в v1.5.0
 
@@ -958,7 +974,13 @@ Quick admin web access (secure)
 
 ---
 HISTORY UPDATE (2026-03-09, Katana17)
-Current stable version: v1.7.3
+Current stable version: v1.7.4
+
+v1.7.4
+- Fixed forced daily МЭШ reauth for fallback sessions without OAuth refresh data.
+- Fallback tokens are no longer treated as expired by a local 24h timer.
+- The bot now keeps such sessions until the API returns a real 401.
+- Added regression tests for token manager behavior with and without OAuth refresh data.
 
 v1.7.3
 - Homework notifications now include explicit due date in each item.
@@ -985,8 +1007,8 @@ Katana17 execution notes
 
 Git fixation
 - Commit: d334ec6
-- Tag: v1.7.3
-- Pushed: origin/main and origin/v1.7.3
+- Tag: v1.7.4
+- Pushed: origin/main and origin/v1.7.4
 
 Notification fixes (2026-03-10)
 - Homework notifications switched to one per-student summary for the next school day, based on last lesson end time + 30 minutes.

@@ -17,6 +17,15 @@ TOKEN_EXPIRY_BUFFER_MINUTES = 5
 _token_locks: dict[int, asyncio.Lock] = {}
 
 
+def _has_oauth_refresh_data(user: dict) -> bool:
+    """Возвращает True, если у пользователя есть полный набор OAuth-данных для refresh."""
+    return bool(
+        user.get("mesh_refresh_token")
+        and user.get("mesh_client_id")
+        and user.get("mesh_client_secret")
+    )
+
+
 def _is_token_valid(token_expires_at: Optional[str]) -> bool:
     """
     Проверяет, действителен ли токен с учётом буфера безопасности.
@@ -162,6 +171,17 @@ async def ensure_token(user_id: int) -> str:
         refresh_token = user.get("mesh_refresh_token")
         client_id = user.get("mesh_client_id")
         client_secret = user.get("mesh_client_secret")
+
+        # Для fallback-сессий без OAuth-данных точный срок жизни токена нам неизвестен.
+        # Не запускаем принудительную переавторизацию по локальному 24h-таймеру:
+        # используем текущий токен, пока API сам не вернёт 401.
+        if current_token and not _has_oauth_refresh_data(user):
+            logger.info(
+                "Токен без OAuth-данных повторно используется для user_id=%d "
+                "до фактического 401 от МЭШ API",
+                user_id,
+            )
+            return current_token
 
         # Способ 1: OAuth refresh (если есть данные)
         if refresh_token and client_id and client_secret:

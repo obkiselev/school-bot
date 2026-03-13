@@ -1,10 +1,14 @@
-# School Bot — Единый школьный Telegram-бот (v1.7.0)
+# School Bot — Единый школьный Telegram-бот (v1.7.4)
 
 Telegram-бот для родителей и учеников, объединяющий два сервиса:
 - **Для родителей**: расписание, оценки, домашние задания через МЭШ (Московская электронная школа)
 - **Для учеников**: тестирование по школьным предметам (English, Spanish) через AI с геймификацией
 
 Доступ управляется администратором. Бот определяет роль пользователя и показывает соответствующее меню.
+
+Фикс устойчивости МЭШ-сессии: fallback-токены без `refresh_token` больше не принудительно
+считаются истёкшими через локальные 24 часа, поэтому бот не должен сам провоцировать
+ежедневный повторный SMS-вход.
 
 ## Возможности
 
@@ -431,7 +435,13 @@ Quick admin web access (secure)
 
 ---
 HISTORY UPDATE (2026-03-09, Katana17)
-Current stable version: v1.7.3
+Current stable version: v1.7.4
+
+v1.7.4
+- Fixed forced daily МЭШ reauth for fallback sessions without OAuth refresh data.
+- Fallback tokens are no longer treated as expired by a local 24h timer.
+- The bot now keeps such sessions until the API returns a real 401.
+- Added regression tests for token manager behavior with and without OAuth refresh data.
 
 v1.7.3
 - Homework notifications now include explicit due date in each item.
@@ -458,8 +468,8 @@ Katana17 execution notes
 
 Git fixation
 - Commit: d334ec6
-- Tag: v1.7.3
-- Pushed: origin/main and origin/v1.7.3
+- Tag: v1.7.4
+- Pushed: origin/main and origin/v1.7.4
 
 Notification fixes (2026-03-10)
 - Homework notifications: one summary per student for the next school day, sent 30 minutes after that student's last lesson.

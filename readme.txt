@@ -1,5 +1,9 @@
 School Bot — Единый школьный Telegram-бот
-Текущая версия: 1.7.0
+Текущая версия: 1.7.4
+
+Последний фикс МЭШ-сессии:
+- fallback-токены без OAuth refresh-данных больше не протухают по локальному таймеру 24h;
+  бот использует их до реального 401 от МЭШ API и не должен сам вызывать ежедневный SMS-вход.
 
 ============================================
 ПЛАН РАЗВИТИЯ
@@ -155,7 +159,13 @@ Quick admin web access (secure)
 
 ---
 HISTORY UPDATE (2026-03-09, Katana17)
-Current stable version: v1.7.3
+Current stable version: v1.7.4
+
+v1.7.4
+- Fixed forced daily МЭШ reauth for fallback sessions without OAuth refresh data.
+- Fallback tokens are no longer treated as expired by a local 24h timer.
+- The bot now keeps such sessions until the API returns a real 401.
+- Added regression tests for token manager behavior with and without OAuth refresh data.
 
 v1.7.3
 - Homework notifications now include explicit due date in each item.
@@ -182,13 +192,13 @@ Katana17 execution notes
 
 Git fixation
 - Commit: d334ec6
-- Tag: v1.7.3
-- Pushed: origin/main and origin/v1.7.3
+- Tag: v1.7.4
+- Pushed: origin/main and origin/v1.7.4
 
 ---
 HISTORY SYNC (2026-03-09)
 - Synced: readme.txt <-> _repo/readme.txt
-- Stable version reference: v1.7.3 (commit d334ec6, tag v1.7.3)
+- Stable version reference: v1.7.4
 
 NOTIFICATION FIXES (2026-03-10)
 - Homework notifications now send one summary per student for the next school day, exactly after last lesson end + 30 minutes.

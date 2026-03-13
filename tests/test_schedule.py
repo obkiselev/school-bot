@@ -225,6 +225,9 @@ def _make_user_dict(token: str = "old_token", expires_at: str = None) -> dict:
         "mesh_password": "pass",
         "mesh_token": token,
         "token_expires_at": expires_at,
+        "mesh_refresh_token": None,
+        "mesh_client_id": None,
+        "mesh_client_secret": None,
     }
 
 
@@ -258,21 +261,27 @@ class TestTokenManager:
     async def test_token_expired_refresh(
         self, mock_get_user, mock_mesh_auth_cls, mock_update_token
     ):
-        """Токен истёк — вызывается MeshAuth.start_login, новый токен сохраняется."""
+        """Токен истёк и есть OAuth-данные — выполняется refresh без повторного логина."""
         past_time = (datetime.now() - timedelta(hours=1)).isoformat()
-        mock_get_user.return_value = _make_user_dict("old_token", past_time)
+        user = _make_user_dict("old_token", past_time)
+        user["mesh_refresh_token"] = "refresh"
+        user["mesh_client_id"] = "client_id"
+        user["mesh_client_secret"] = "client_secret"
+        mock_get_user.return_value = user
 
-        mock_auth = AsyncMock()
-        mock_auth.start_login.return_value = {
+        mock_mesh_auth_cls.do_refresh_token = AsyncMock(return_value={
             "token": "new_token",
-            "status": "success",
-        }
-        mock_mesh_auth_cls.return_value = mock_auth
+            "refresh_token": "refresh_2",
+        })
 
         result = await ensure_token(12345)
 
         assert result == "new_token"
-        mock_auth.start_login.assert_awaited_once_with("login", "pass")
+        mock_mesh_auth_cls.do_refresh_token.assert_awaited_once_with(
+            refresh_token="refresh",
+            client_id="client_id",
+            client_secret="client_secret",
+        )
         mock_update_token.assert_awaited_once()
 
     @patch("utils.token_manager.update_user_token", new_callable=AsyncMock)
@@ -281,33 +290,58 @@ class TestTokenManager:
     async def test_token_none_refresh(
         self, mock_get_user, mock_mesh_auth_cls, mock_update_token
     ):
-        """token_expires_at=None — обновление запускается."""
-        mock_get_user.return_value = _make_user_dict("old_token", None)
+        """token_expires_at=None и есть OAuth-данные — выполняется refresh."""
+        user = _make_user_dict("old_token", None)
+        user["mesh_refresh_token"] = "refresh"
+        user["mesh_client_id"] = "client_id"
+        user["mesh_client_secret"] = "client_secret"
+        mock_get_user.return_value = user
 
-        mock_auth = AsyncMock()
-        mock_auth.start_login.return_value = {
+        mock_mesh_auth_cls.do_refresh_token = AsyncMock(return_value={
             "token": "refreshed_token",
-            "status": "success",
-        }
-        mock_mesh_auth_cls.return_value = mock_auth
+            "refresh_token": "refresh_2",
+        })
 
         result = await ensure_token(12345)
 
         assert result == "refreshed_token"
-        mock_auth.start_login.assert_awaited_once()
+        mock_mesh_auth_cls.do_refresh_token.assert_awaited_once()
+
+    @patch("utils.token_manager.update_user_token", new_callable=AsyncMock)
+    @patch("utils.token_manager.MeshAuth")
+    @patch("utils.token_manager.get_user", new_callable=AsyncMock)
+    async def test_token_without_oauth_data_reused_after_local_expiry(
+        self, mock_get_user, mock_mesh_auth_cls, mock_update_token
+    ):
+        """Токен без OAuth-данных не переавторизуется по локальному 24h-таймеру."""
+        past_time = (datetime.now() - timedelta(days=3)).isoformat()
+        mock_get_user.return_value = _make_user_dict("existing_token", past_time)
+
+        result = await ensure_token(12345)
+
+        assert result == "existing_token"
+        mock_mesh_auth_cls.assert_not_called()
+        mock_update_token.assert_not_called()
 
     @patch("utils.token_manager.MeshAuth")
     @patch("utils.token_manager.get_user", new_callable=AsyncMock)
     async def test_token_refresh_failure(
         self, mock_get_user, mock_mesh_auth_cls
     ):
-        """start_login бросает AuthenticationError — пробрасывается наверх."""
+        """Если refresh не удался, а логин тоже падает — ошибка пробрасывается наверх."""
         past_time = (datetime.now() - timedelta(hours=1)).isoformat()
-        mock_get_user.return_value = _make_user_dict("old_token", past_time)
+        user = _make_user_dict("old_token", past_time)
+        user["mesh_refresh_token"] = "refresh"
+        user["mesh_client_id"] = "client_id"
+        user["mesh_client_secret"] = "client_secret"
+        mock_get_user.return_value = user
 
         mock_auth = AsyncMock()
         mock_auth.start_login.side_effect = AuthenticationError("Auth failed")
         mock_mesh_auth_cls.return_value = mock_auth
+        mock_mesh_auth_cls.do_refresh_token = AsyncMock(
+            side_effect=AuthenticationError("Refresh failed")
+        )
 
         with pytest.raises(AuthenticationError):
             await ensure_token(12345)

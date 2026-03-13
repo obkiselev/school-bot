@@ -408,7 +408,15 @@ async def _save_registration(source, state: FSMContext, edit_msg: Message = None
             "present" if data.get("mesh_client_secret") else "MISSING",
             user_id,
         )
-        token_expires_at = (datetime.now() + timedelta(hours=24)).isoformat()
+        has_oauth_refresh = bool(
+            data.get("mesh_refresh_token")
+            and data.get("mesh_client_id")
+            and data.get("mesh_client_secret")
+        )
+        token_expires_at = (
+            (datetime.now() + timedelta(hours=24)).isoformat()
+            if has_oauth_refresh else None
+        )
         await create_user(
             user_id=user_id,
             username=source.from_user.username,
