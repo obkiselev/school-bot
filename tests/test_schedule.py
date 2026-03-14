@@ -325,6 +325,22 @@ class TestTokenManager:
 
     @patch("utils.token_manager.MeshAuth")
     @patch("utils.token_manager.get_user", new_callable=AsyncMock)
+    async def test_token_without_oauth_data_after_forced_invalidation_requires_manual_reregister(
+        self, mock_get_user, mock_mesh_auth_cls
+    ):
+        """После реального 401 fallback-токен больше не вызывает скрытый SMS-вход."""
+        mock_get_user.return_value = _make_user_dict(
+            "existing_token",
+            "2000-01-01T00:00:00",
+        )
+
+        with pytest.raises(AuthenticationError, match="перерегистрируйтесь: /start"):
+            await ensure_token(12345)
+
+        mock_mesh_auth_cls.assert_not_called()
+
+    @patch("utils.token_manager.MeshAuth")
+    @patch("utils.token_manager.get_user", new_callable=AsyncMock)
     async def test_token_refresh_failure(
         self, mock_get_user, mock_mesh_auth_cls
     ):
@@ -336,15 +352,14 @@ class TestTokenManager:
         user["mesh_client_secret"] = "client_secret"
         mock_get_user.return_value = user
 
-        mock_auth = AsyncMock()
-        mock_auth.start_login.side_effect = AuthenticationError("Auth failed")
-        mock_mesh_auth_cls.return_value = mock_auth
         mock_mesh_auth_cls.do_refresh_token = AsyncMock(
             side_effect=AuthenticationError("Refresh failed")
         )
 
-        with pytest.raises(AuthenticationError):
+        with pytest.raises(AuthenticationError, match="перерегистрируйтесь: /start"):
             await ensure_token(12345)
+
+        mock_mesh_auth_cls.assert_not_called()
 
     @patch("utils.token_manager.get_user", new_callable=AsyncMock)
     async def test_token_user_not_found(self, mock_get_user):

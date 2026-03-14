@@ -1,4 +1,4 @@
-"""Менеджер токенов для автоматического обновления сессии МЭШ."""
+"""Token manager for safe MeSH session reuse and refresh."""
 import asyncio
 import logging
 from datetime import datetime, timedelta
@@ -6,19 +6,18 @@ from typing import Optional
 
 from database.crud import get_user, update_user_token
 from mesh_api.auth import MeshAuth
-from mesh_api.exceptions import AuthenticationError, MeshAPIError
+from mesh_api.exceptions import AuthenticationError
 
 logger = logging.getLogger(__name__)
 
-# Буфер безопасности — обновляем токен за 5 минут до истечения
 TOKEN_EXPIRY_BUFFER_MINUTES = 5
+FORCED_INVALIDATION_SENTINEL = "2000-01-01T00:00:00"
 
-# Блокировки по user_id — защита от одновременного обновления токена
 _token_locks: dict[int, asyncio.Lock] = {}
 
 
 def _has_oauth_refresh_data(user: dict) -> bool:
-    """Возвращает True, если у пользователя есть полный набор OAuth-данных для refresh."""
+    """Return True when the user has a full OAuth refresh bundle."""
     return bool(
         user.get("mesh_refresh_token")
         and user.get("mesh_client_id")
@@ -28,162 +27,80 @@ def _has_oauth_refresh_data(user: dict) -> bool:
 
 def _is_token_valid(token_expires_at: Optional[str]) -> bool:
     """
-    Проверяет, действителен ли токен с учётом буфера безопасности.
+    Check whether the token is still valid with a small safety buffer.
 
-    Args:
-        token_expires_at: ISO-строка срока действия токена или None
-
-    Returns:
-        True если токен ещё действителен, False если истёк или None
+    Returns False when the expiry is missing or malformed.
     """
-    # Токен ещё не получен — считаем истёкшим
     if token_expires_at is None:
         return False
 
     try:
         expires_at = datetime.fromisoformat(token_expires_at)
     except (ValueError, TypeError):
-        # Невалидный формат — считаем токен истёкшим
-        logger.warning("Невалидный формат token_expires_at: %s", token_expires_at)
+        logger.warning("Invalid token_expires_at format: %s", token_expires_at)
         return False
 
-    # Сравниваем naive datetime с naive datetime (без timezone)
-    # Буфер: считаем истёкшим за 5 минут до реального срока
     buffer = timedelta(minutes=TOKEN_EXPIRY_BUFFER_MINUTES)
     return (expires_at - buffer) > datetime.now()
 
 
-async def _reauth_with_credentials(user_id: int, login: str, password: str) -> str:
-    """
-    Переавторизация через сохранённые логин/пароль.
-
-    Если вход проходит без SMS — сохраняет новый токен + OAuth-данные.
-    Если требуется SMS — бросает AuthenticationError (нужна ручная перерегистрация).
-
-    Returns:
-        Новый mesh_token
-
-    Raises:
-        AuthenticationError: Если нужен SMS или ошибка авторизации
-    """
-    logger.info("Авто-переавторизация через сохранённые данные для user_id=%d", user_id)
-
-    auth = MeshAuth()
-    try:
-        result = await auth.start_login(login, password)
-    except AuthenticationError:
-        raise
-    except Exception as e:
-        logger.error("Ошибка авто-переавторизации: user_id=%d, error=%s", user_id, e)
-        raise AuthenticationError(
-            "Не удалось автоматически обновить сессию. Перерегистрируйтесь: /start"
-        )
-
-    if result.get("status") == "sms_required":
-        logger.warning(
-            "Авто-переавторизация требует SMS для user_id=%d. "
-            "Пользователь должен перерегистрироваться.",
-            user_id,
-        )
-        raise AuthenticationError(
-            "Сессия МЭШ истекла. Требуется SMS-подтверждение.\n"
-            "Пожалуйста, перерегистрируйтесь: /start"
-        )
-
-    new_token = result["token"]
-    new_refresh = result.get("refresh_token")
-    new_client_id = result.get("client_id")
-    new_client_secret = result.get("client_secret")
-    new_expires_at = (datetime.now() + timedelta(hours=24)).isoformat()
-
-    await update_user_token(
-        user_id, new_token, new_expires_at,
-        mesh_refresh_token=new_refresh,
-        mesh_client_id=new_client_id,
-        mesh_client_secret=new_client_secret,
-    )
-
-    if not new_refresh or not new_client_id or not new_client_secret:
-        logger.warning(
-            "Авто-переавторизация для user_id=%d: НЕПОЛНЫЕ OAuth-данные! "
-            "refresh=%s, client_id=%s, client_secret=%s. "
-            "Вероятно Playwright fallback — следующее обновление токена "
-            "потребует полной переавторизации.",
-            user_id,
-            "YES" if new_refresh else "NO",
-            "YES" if new_client_id else "NO",
-            "YES" if new_client_secret else "NO",
-        )
-    else:
-        logger.info(
-            "Авто-переавторизация успешна для user_id=%d, "
-            "refresh=%s, client_id=%s, client_secret=%s",
-            user_id,
-            "YES" if new_refresh else "NO",
-            "YES" if new_client_id else "NO",
-            "YES" if new_client_secret else "NO",
-        )
-
-    return new_token
+def _is_forced_refresh(token_expires_at: Optional[str]) -> bool:
+    """Return True when the token was explicitly invalidated after a real 401."""
+    return token_expires_at == FORCED_INVALIDATION_SENTINEL
 
 
 async def ensure_token(user_id: int) -> str:
     """
-    Получает действующий токен для пользователя.
+    Return a usable MeSH token for the user.
 
-    Порядок:
-    1. Если текущий токен валиден — возвращает его
-    2. Если есть OAuth-данные — обновляет через refresh_token
-    3. Если OAuth-данных нет — переавторизация через сохранённый логин/пароль
-    4. Если всё не удалось — бросает AuthenticationError
-
-    Args:
-        user_id: Telegram user ID
-
-    Returns:
-        Действующий токен МЭШ
-
-    Raises:
-        AuthenticationError: Если пользователь не найден или сессия истекла
+    Rules:
+    1. A still-valid token is reused.
+    2. OAuth sessions are refreshed via refresh_token.
+    3. Fallback sessions without OAuth are reused until the first real 401.
+    4. After a real 401 or failed OAuth refresh, we do not trigger silent SMS login.
     """
-    # Блокировка по user_id — только один вызов обновляет токен одновременно
     if user_id not in _token_locks:
         _token_locks[user_id] = asyncio.Lock()
 
     async with _token_locks[user_id]:
-        # Получаем данные пользователя из БД
         user = await get_user(user_id)
-
         if not user:
-            logger.error("Пользователь не найден: user_id=%d", user_id)
+            logger.error("User not found: user_id=%d", user_id)
             raise AuthenticationError("Пользователь не зарегистрирован")
 
-        # Проверяем, действителен ли текущий токен
         current_token = user.get("mesh_token")
         token_expires_at = user.get("token_expires_at")
+        has_oauth_refresh = _has_oauth_refresh_data(user)
+        forced_refresh = _is_forced_refresh(token_expires_at)
 
         if current_token and _is_token_valid(token_expires_at):
             return current_token
 
-        # Токен истёк — обновляем
-        logger.info("Обновление токена для пользователя user_id=%d", user_id)
+        logger.info("Refreshing MeSH token for user_id=%d", user_id)
+
+        # For fallback sessions we no longer trust the local 24h timer. Reuse the token
+        # until MeSH itself returns 401, then require a manual /start instead of SMS spam.
+        if current_token and not has_oauth_refresh and not forced_refresh:
+            logger.info(
+                "Reusing fallback token without OAuth data for user_id=%d until a real 401",
+                user_id,
+            )
+            return current_token
+
+        if current_token and not has_oauth_refresh and forced_refresh:
+            logger.warning(
+                "Fallback token is exhausted for user_id=%d; silent SMS relogin is disabled",
+                user_id,
+            )
+            raise AuthenticationError(
+                "Сессия МЭШ истекла. Без OAuth refresh_token бот не запускает новый SMS-вход автоматически.\n"
+                "Пожалуйста, перерегистрируйтесь: /start"
+            )
 
         refresh_token = user.get("mesh_refresh_token")
         client_id = user.get("mesh_client_id")
         client_secret = user.get("mesh_client_secret")
 
-        # Для fallback-сессий без OAuth-данных точный срок жизни токена нам неизвестен.
-        # Не запускаем принудительную переавторизацию по локальному 24h-таймеру:
-        # используем текущий токен, пока API сам не вернёт 401.
-        if current_token and not _has_oauth_refresh_data(user):
-            logger.info(
-                "Токен без OAuth-данных повторно используется для user_id=%d "
-                "до фактического 401 от МЭШ API",
-                user_id,
-            )
-            return current_token
-
-        # Способ 1: OAuth refresh (если есть данные)
         if refresh_token and client_id and client_secret:
             try:
                 result = await MeshAuth.do_refresh_token(
@@ -196,35 +113,34 @@ async def ensure_token(user_id: int) -> str:
                 new_expires_at = (datetime.now() + timedelta(hours=24)).isoformat()
 
                 await update_user_token(
-                    user_id, new_token, new_expires_at,
+                    user_id,
+                    new_token,
+                    new_expires_at,
                     mesh_refresh_token=new_refresh,
                 )
 
-                logger.info("Токен обновлён через refresh_token для user_id=%d", user_id)
+                logger.info("Token refreshed via refresh_token for user_id=%d", user_id)
                 return new_token
-
             except AuthenticationError:
-                # refresh_token истёк — попробуем переавторизацию
                 logger.warning(
-                    "refresh_token истёк для user_id=%d, пробуем переавторизацию",
+                    "refresh_token failed for user_id=%d; silent SMS relogin is disabled",
                     user_id,
                 )
             except Exception as e:
                 logger.error(
-                    "Ошибка OAuth refresh: user_id=%d, error=%s. Пробуем переавторизацию.",
-                    user_id, e,
+                    "OAuth refresh error for user_id=%d: %s. Silent SMS relogin is disabled.",
+                    user_id,
+                    e,
                 )
 
-        # Способ 2: Переавторизация через сохранённые логин/пароль
-        login = user.get("mesh_login")
-        password = user.get("mesh_password")
+            raise AuthenticationError(
+                "Не удалось автоматически обновить сессию МЭШ через refresh_token. "
+                "Чтобы не вызывать лишние SMS-коды, бот не запускает повторный вход сам.\n"
+                "Пожалуйста, перерегистрируйтесь: /start"
+            )
 
-        if login and password:
-            return await _reauth_with_credentials(user_id, login, password)
-
-        # Ничего не помогло
         logger.error(
-            "Токен истёк, нет OAuth-данных и нет сохранённых учётных данных. user_id=%d",
+            "Token expired and no OAuth refresh data is available for user_id=%d",
             user_id,
         )
         raise AuthenticationError(

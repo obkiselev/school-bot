@@ -159,7 +159,13 @@ Quick admin web access (secure)
 
 ---
 HISTORY UPDATE (2026-03-09, Katana17)
-Current stable version: v1.7.4
+Current stable version: v1.7.5
+
+v1.7.5
+- Fixed the remaining MeSH token path that could still trigger unwanted confirmation codes.
+- Silent relogin via login/password is now disabled after a real 401 or failed OAuth refresh.
+- Fallback sessions without OAuth data now require manual `/start` instead of hidden SMS reauth.
+- Added regression tests for forced invalidation and failed refresh_token handling.
 
 v1.7.4
 - Fixed forced daily МЭШ reauth for fallback sessions without OAuth refresh data.
